@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(git add:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "WebFetch(domain:developers.themoviedb.org)",
+      "WebFetch(domain:developer.themoviedb.org)",
+      "WebFetch(domain:developer.themoviedb.org)",
+      "WebFetch(domain:developer.themoviedb.org)"
     ],
     "deny": []
   }

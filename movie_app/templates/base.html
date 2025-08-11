@@ -9,7 +9,7 @@
   <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
   <script>
     window.APP_CONFIG = {
-      fallbackPoster: "https://via.placeholder.com/342x513?text=No+Image"
+      fallbackPoster: "{{ url_for('static', filename='img/placeholder-poster.svg') }}"
     };
   </script>
 </head>

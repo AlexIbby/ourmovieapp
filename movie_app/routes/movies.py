@@ -153,11 +153,65 @@ def search_tmdb():
     q = (request.args.get("q") or "").strip()
     if not q:
         return jsonify({"results": []})
+    
+    # Check if library-only search is requested
+    library_only = request.args.get("library_only", "").lower() == "true"
+    
+    if library_only:
+        # Search local library instead of TMDB
+        return search_local_library(q)
+    
     try:
         page = int(request.args.get("page", 1))
     except Exception:
         page = 1
-    results = tmdb.search_movies(q, page=page)
+
+    # Optional year and director params
+    year_val = None
+    year_param = request.args.get("year")
+    if year_param:
+        try:
+            year_val = int(year_param)
+        except Exception:
+            year_val = None
+    director = (request.args.get("director") or "").strip() or None
+
+    results = tmdb.search_movies(q, page=page, year=year_val, director=director)
+    return jsonify({"results": results})
+
+
+def search_local_library(query: str):
+    """
+    Search the local movie library using fuzzy text matching.
+    Returns results in the same format as TMDB search for consistency.
+    """
+    query = query.strip().lower()
+    if not query:
+        return jsonify({"results": []})
+    
+    # Search movies by title (case-insensitive, partial matching)
+    movies = Movie.query.filter(
+        db.or_(
+            Movie.title.ilike(f'%{query}%'),
+            Movie.original_title.ilike(f'%{query}%')
+        )
+    ).order_by(Movie.added_at.desc()).limit(20).all()
+    
+    results = []
+    for movie in movies:
+        poster_url = f"{tmdb.IMAGE_BASE}/w185{movie.poster_path}" if movie.poster_path else None
+        
+        results.append({
+            "tmdb_id": movie.tmdb_id,
+            "title": movie.title,
+            "year": movie.year,
+            "poster_path": movie.poster_path,
+            "poster_url": poster_url,
+            "overview": movie.overview,
+            "directors": [],  # Could be populated if needed
+            "in_library": True  # Mark as already in library
+        })
+    
     return jsonify({"results": results})
 
 

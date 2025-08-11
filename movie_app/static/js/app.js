@@ -6,6 +6,9 @@
   // Current user state
   let currentUser = null;
   let isAdmin = false;
+  
+  // Search state management
+  let currentSearchController = null;
 
   const toastEl = $("#toast");
   let toast;
@@ -40,8 +43,11 @@
     return img;
   }
 
-  async function apiGet(url) {
-    const r = await fetch(url, { credentials: "same-origin" });
+  async function apiGet(url, options = {}) {
+    const r = await fetch(url, { 
+      credentials: "same-origin",
+      ...options 
+    });
     if (!r.ok) throw new Error(`GET ${url} failed`);
     return r.json();
   }
@@ -92,6 +98,9 @@
   // Dashboard behavior
   const searchInput = $("#searchInput");
   const clearSearchBtn = $("#clearSearchBtn");
+  const searchYearInput = $("#searchYear");
+  const searchDirectorInput = $("#searchDirector");
+  const searchLibraryOnly = $("#searchLibraryOnly");
   const searchSection = $("#searchSection");
   const searchResults = $("#searchResults");
   const libraryGrid = $("#libraryGrid");
@@ -117,32 +126,80 @@
 
   const doSearch = debounce(async () => {
     const q = (searchInput.value || "").trim();
+    const yearVal = (searchYearInput && searchYearInput.value) ? Number(searchYearInput.value) : null;
+    const directorVal = (searchDirectorInput && searchDirectorInput.value || '').trim();
+    const libraryOnly = searchLibraryOnly && searchLibraryOnly.checked;
+    
     if (!q) {
+      // Cancel any ongoing search
+      if (currentSearchController) {
+        currentSearchController.abort();
+        currentSearchController = null;
+      }
       searchSection.classList.add("d-none");
       searchResults.innerHTML = "";
       return;
     }
+    
     try {
-      const data = await apiGet(`/api/movies/search?q=${encodeURIComponent(q)}`);
-      renderSearchResults(data.results || []);
+      // Cancel previous search if still running
+      if (currentSearchController) {
+        currentSearchController.abort();
+      }
+      
+      // Create new AbortController for this search
+      currentSearchController = new AbortController();
+      
+      // Show loading indicator
+      searchResults.innerHTML = `<div class="text-muted">
+        <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
+        ${libraryOnly ? 'Searching library...' : 'Searching TMDB...'}
+      </div>`;
       searchSection.classList.remove("d-none");
+      
+      const params = new URLSearchParams();
+      params.set('q', q);
+      if (yearVal && !Number.isNaN(yearVal)) params.set('year', String(yearVal));
+      if (directorVal) params.set('director', directorVal);
+      if (libraryOnly) params.set('library_only', 'true');
+      
+      const data = await apiGet(`/api/movies/search?${params.toString()}`, {
+        signal: currentSearchController.signal
+      });
+      
+      // Clear controller since request completed successfully
+      currentSearchController = null;
+      renderSearchResults(data.results || [], libraryOnly);
     } catch (e) {
+      // Don't show error if request was aborted (user typed more)
+      if (e.name === 'AbortError') {
+        return;
+      }
       console.error(e);
       showToast("Search failed", "danger");
+      searchResults.innerHTML = `<div class="text-muted text-danger">Search failed</div>`;
     }
-  }, 350);
+  }, 500);
 
   searchInput && searchInput.addEventListener("input", doSearch);
+  searchYearInput && searchYearInput.addEventListener("input", doSearch);
+  searchDirectorInput && searchDirectorInput.addEventListener("input", doSearch);
+  searchLibraryOnly && searchLibraryOnly.addEventListener("change", doSearch);
+  
   clearSearchBtn && clearSearchBtn.addEventListener("click", () => {
     searchInput.value = "";
+    if (searchYearInput) searchYearInput.value = "";
+    if (searchDirectorInput) searchDirectorInput.value = "";
+    if (searchLibraryOnly) searchLibraryOnly.checked = false;
     searchSection.classList.add("d-none");
     searchResults.innerHTML = "";
   });
 
-  function renderSearchResults(results) {
+  function renderSearchResults(results, isLibrarySearch = false) {
     searchResults.innerHTML = "";
     if (!results.length) {
-      searchResults.innerHTML = `<div class="text-muted">No results</div>`;
+      const message = isLibrarySearch ? "No movies found in your library" : "No results";
+      searchResults.innerHTML = `<div class="text-muted">${message}</div>`;
       return;
     }
     const frag = document.createDocumentFragment();
@@ -161,41 +218,53 @@
       title.textContent = r.title || "";
       const meta = document.createElement("div");
       meta.className = "small text-muted";
-      meta.textContent = r.year ? String(r.year) : "";
-      const addBtn = document.createElement("button");
-      addBtn.className = "btn btn-sm btn-primary w-100 mt-2";
-      addBtn.textContent = "Add";
-      addBtn.addEventListener("click", async () => {
-        addBtn.disabled = true;
-        addBtn.textContent = "Adding…";
-        try {
-          const res = await apiPost("/api/movies", { tmdb_id: r.tmdb_id });
-          if (res && res.ok) {
-            showToast("Added to library", "success");
-            // Return to library view so the user sees the new movie
-            if (searchInput) searchInput.value = "";
-            if (searchSection) searchSection.classList.add("d-none");
-            if (searchResults) searchResults.innerHTML = "";
-            loadLibrary(1);
-            // Bring the library into view for good measure
-            if (libraryGrid && libraryGrid.scrollIntoView) {
-              libraryGrid.scrollIntoView({ behavior: "smooth", block: "start" });
+      const yearText = r.year ? String(r.year) : "";
+      const dirText = (r.directors && r.directors.length) ? ` • Dir: ${r.directors.slice(0,2).join(', ')}` : "";
+      meta.textContent = `${yearText}${dirText}`;
+      
+      // Show different button based on whether it's a library search or TMDB search
+      if (isLibrarySearch || r.in_library) {
+        const inLibraryBadge = document.createElement("div");
+        inLibraryBadge.className = "btn btn-sm btn-success w-100 mt-2";
+        inLibraryBadge.textContent = "✓ In Library";
+        inLibraryBadge.disabled = true;
+        body.appendChild(inLibraryBadge);
+      } else {
+        const addBtn = document.createElement("button");
+        addBtn.className = "btn btn-sm btn-primary w-100 mt-2";
+        addBtn.textContent = "Add";
+        addBtn.addEventListener("click", async () => {
+          addBtn.disabled = true;
+          addBtn.textContent = "Adding…";
+          try {
+            const res = await apiPost("/api/movies", { tmdb_id: r.tmdb_id });
+            if (res && res.ok) {
+              showToast("Added to library", "success");
+              // Return to library view so the user sees the new movie
+              if (searchInput) searchInput.value = "";
+              if (searchSection) searchSection.classList.add("d-none");
+              if (searchResults) searchResults.innerHTML = "";
+              loadLibrary(1);
+              // Bring the library into view for good measure
+              if (libraryGrid && libraryGrid.scrollIntoView) {
+                libraryGrid.scrollIntoView({ behavior: "smooth", block: "start" });
+              }
+            } else {
+              showToast(res.error || "Failed to add", "danger");
             }
-          } else {
-            showToast(res.error || "Failed to add", "danger");
+          } catch (e) {
+            console.error(e);
+            showToast("Failed to add", "danger");
+          } finally {
+            addBtn.disabled = false;
+            addBtn.textContent = "Add";
           }
-        } catch (e) {
-          console.error(e);
-          showToast("Failed to add", "danger");
-        } finally {
-          addBtn.disabled = false;
-          addBtn.textContent = "Add";
-        }
-      });
+        });
+        body.appendChild(addBtn);
+      }
 
       body.appendChild(title);
       body.appendChild(meta);
-      body.appendChild(addBtn);
       card.appendChild(img);
       card.appendChild(body);
       col.appendChild(card);
@@ -368,19 +437,65 @@
           // Enable pre-click preview interactions (hover/touch)
           enableRatingPreview(starsContainer);
         } else {
-          // Show read-only rating
-          const ratingDisplay = document.createElement("div");
-          ratingDisplay.className = "rating-display";
-          
-          if (m.ratings && m.ratings[username]) {
-            const rating = m.ratings[username];
-            ratingDisplay.innerHTML = `<div class="rating-readout">${rating}/5 — ${getRatingAdjective(rating)}</div>`;
-          } else {
-            ratingDisplay.innerHTML = `<div class="rating-readout">No rating</div>`;
+          // Show read-only rating with star visuals for the other user
+          const ratingContainer = document.createElement("div");
+          ratingContainer.style.display = "flex";
+          ratingContainer.style.alignItems = "center";
+          ratingContainer.style.gap = "10px";
+
+          const ratingForm = document.createElement("div");
+          ratingForm.className = "rating";
+
+          const starsContainer = document.createElement("div");
+          starsContainer.className = "rating__stars";
+
+          const inputs = [];
+          const labels = [];
+          for (let i = 1; i <= 5; i++) {
+            const input = document.createElement("input");
+            input.id = `${m.id}-${username}-ro-star-${i}`;
+            input.className = `rating__input rating__input-${i}`;
+            input.type = "radio";
+            input.name = `rating-readonly-${m.id}-${username}`;
+            input.value = i;
+            input.disabled = true;
+            inputs.push(input);
+
+            const label = document.createElement("label");
+            label.className = "rating__label";
+            label.setAttribute("for", `${m.id}-${username}-ro-star-${i}`);
+            label.innerHTML = '<span class="rating__star"></span>';
+            labels.push(label);
           }
-          
+
+          // Append inputs then labels so CSS sibling selectors work
+          inputs.forEach(input => starsContainer.appendChild(input));
+          labels.forEach(label => starsContainer.appendChild(label));
+
+          // Apply the other user's rating to check the appropriate star
+          let readonlyRating = null;
+          if (m.ratings && m.ratings[username]) {
+            readonlyRating = m.ratings[username];
+            const targetVal = Math.round(Number(readonlyRating));
+            const toCheck = starsContainer.querySelector(`input[value="${targetVal}"]`);
+            if (toCheck) toCheck.checked = true;
+          }
+
+          ratingForm.appendChild(starsContainer);
+
+          const readout = document.createElement("span");
+          readout.className = "rating-readout";
+          if (readonlyRating) {
+            readout.textContent = `${readonlyRating}/5 — ${getRatingAdjective(readonlyRating)}`;
+          } else {
+            readout.textContent = "No rating";
+          }
+
+          ratingContainer.appendChild(ratingForm);
+          ratingContainer.appendChild(readout);
+
           row.appendChild(who);
-          row.appendChild(ratingDisplay);
+          row.appendChild(ratingContainer);
         }
         
         ratingsSection.appendChild(row);
