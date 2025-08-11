@@ -365,6 +365,28 @@ def remove_tag(movie_id, tag_id):
         return jsonify({"ok": False, "error": "Database error"}), 500
 
 
+@movies_bp.get("/api/movies/stats")
+@login_required
+def get_library_stats():
+    """
+    Get library statistics: total movies and unrated movies count for current user.
+    """
+    # Get total movies in library
+    total_movies = Movie.query.count()
+    
+    # Get movies that current user hasn't rated yet
+    # Use LEFT JOIN to find movies without reviews from current user
+    unrated_movies = db.session.query(Movie.id).outerjoin(
+        Review, 
+        db.and_(Movie.id == Review.movie_id, Review.user_id == current_user.id)
+    ).filter(Review.id == None).count()
+    
+    return jsonify({
+        "total_movies": total_movies,
+        "unrated_movies": unrated_movies
+    })
+
+
 @movies_bp.delete("/api/movies/<int:movie_id>")
 @login_required
 @csrf.exempt

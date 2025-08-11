@@ -273,11 +273,42 @@
     searchResults.appendChild(frag);
   }
 
+  async function loadLibraryStats() {
+    console.log('loadLibraryStats called'); // Debug log
+    try {
+      const stats = await apiGet('/api/movies/stats');
+      console.log('Stats received:', stats); // Debug log
+      const totalMoviesEl = $('#totalMoviesText');
+      const unratedMoviesEl = $('#unratedMoviesText');
+      
+      console.log('Elements found:', { totalMoviesEl, unratedMoviesEl }); // Debug log
+      
+      if (totalMoviesEl) {
+        const movieText = stats.total_movies === 1 ? 'movie' : 'movies';
+        totalMoviesEl.textContent = `${stats.total_movies} ${movieText} in library`;
+      }
+      
+      if (unratedMoviesEl) {
+        const movieText = stats.unrated_movies === 1 ? 'movie' : 'movies';
+        const verbText = stats.unrated_movies === 1 ? 'requires' : 'require';
+        unratedMoviesEl.textContent = `${stats.unrated_movies} ${movieText} ${verbText} your rating`;
+      }
+    } catch (e) {
+      console.error('Failed to load library stats:', e);
+      const totalMoviesEl = $('#totalMoviesText');
+      const unratedMoviesEl = $('#unratedMoviesText');
+      if (totalMoviesEl) totalMoviesEl.textContent = 'Error loading stats';
+      if (unratedMoviesEl) unratedMoviesEl.textContent = 'Error loading stats';
+    }
+  }
+
   async function loadLibrary(page) {
     try {
       const data = await apiGet(`/api/movies?page=${page || 1}`);
       renderLibrary(data.items || []);
       renderPagination(data.total_pages || 1, data.page || 1);
+      // Load stats when library is loaded
+      loadLibraryStats();
     } catch (e) {
       console.error(e);
       showToast("Failed to load library", "danger");
@@ -778,6 +809,8 @@
         showToast("Rating saved", "success");
         // Do not reload the entire library here; only this card needs updating.
         // Re-rendering the whole grid causes every star widget to re-init and animate.
+        // But refresh the stats to show updated unrated count
+        loadLibraryStats();
       } else {
         showToast(result.error || "Failed to save rating", "danger");
       }
@@ -1249,6 +1282,9 @@
       const data = await apiGet(url);
       renderLibrary(data.items || []);
       renderPagination(data.total_pages || 1, data.page || 1);
+      
+      // Load stats when library is loaded
+      loadLibraryStats();
       
       // Update filter options based on all movies (not just filtered results)
       if (page === 1) {
