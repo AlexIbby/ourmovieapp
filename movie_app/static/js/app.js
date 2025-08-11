@@ -161,7 +161,15 @@
           const res = await apiPost("/api/movies", { tmdb_id: r.tmdb_id });
           if (res && res.ok) {
             showToast("Added to library", "success");
+            // Return to library view so the user sees the new movie
+            if (searchInput) searchInput.value = "";
+            if (searchSection) searchSection.classList.add("d-none");
+            if (searchResults) searchResults.innerHTML = "";
             loadLibrary(1);
+            // Bring the library into view for good measure
+            if (libraryGrid && libraryGrid.scrollIntoView) {
+              libraryGrid.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
           } else {
             showToast(res.error || "Failed to add", "danger");
           }
