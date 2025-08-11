@@ -19,7 +19,7 @@
       <a class="navbar-brand fw-semibold" href="{{ url_for('movies.dashboard') }}">🍿 Our Movies</a>
       <div class="d-flex align-items-center gap-2 ms-auto">
         {% if current_user.is_authenticated %}
-          <span class="badge text-bg-secondary">Logged in as {{ current_user.username }}</span>
+          <span class="badge login-badge">Logged in as {{ current_user.username }}</span>
           <form id="logoutForm" class="d-inline" action="{{ url_for('auth.logout') }}" method="post">
             <button type="submit" class="btn btn-sm btn-outline-secondary">Logout</button>
           </form>

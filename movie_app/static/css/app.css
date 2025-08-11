@@ -58,6 +58,17 @@ html, body {
   backdrop-filter: saturate(180%) blur(6px);
 }
 
+/* Make the "Logged in as" badge match .btn-sm size and lighten background */
+.navbar .login-badge {
+  font-size: 0.875rem; /* match .btn-sm text size */
+  line-height: 1.5; /* match .btn line-height */
+  padding: 0.25rem 0.5rem; /* match .btn-sm padding */
+  background-color: var(--bs-tertiary-bg); /* lighter gray, theme-aware */
+  color: var(--bs-body-color);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.375rem; /* close to badge default */
+}
+
 #searchResults .card,
 #libraryGrid .card {
   transition: transform 120ms ease, box-shadow 120ms ease;
