@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, jsonify, current_app
 from flask_login import login_user, logout_user, current_user
 from ..extensions import csrf
 from ..models.user import User
@@ -51,5 +51,10 @@ def logout():
 @auth_bp.route("/status", methods=["GET"])
 def status():
     if current_user.is_authenticated:
-        return jsonify({"authenticated": True, "username": current_user.username})
+        admin_username = current_app.config.get("ADMIN_USERNAME", "Alex")
+        return jsonify({
+            "authenticated": True,
+            "username": current_user.username,
+            "is_admin": current_user.username == admin_username,
+        })
     return jsonify({"authenticated": False})

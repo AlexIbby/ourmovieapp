@@ -5,6 +5,7 @@
 
   // Current user state
   let currentUser = null;
+  let isAdmin = false;
 
   const toastEl = $("#toast");
   let toast;
@@ -55,6 +56,16 @@
     return r.json().catch(() => ({}));
   }
 
+  async function apiDelete(url) {
+    const r = await fetch(url, { method: "DELETE", credentials: "same-origin" });
+    return r;
+  }
+
+  async function deleteMovie(movieId) {
+    const r = await apiDelete(`/api/movies/${movieId}`);
+    return r.ok;
+  }
+
   // Theme toggle
   const themeToggle = $("#themeToggle");
   const rootHtml = document.documentElement;
@@ -96,6 +107,10 @@
       const userStatus = await apiGet('/auth/status');
       if (userStatus.authenticated) {
         currentUser = userStatus.username;
+        isAdmin = Boolean(userStatus.is_admin);
+      } else {
+        currentUser = null;
+        isAdmin = false;
       }
       loadLibrary(1);
     } catch (error) {
@@ -218,6 +233,24 @@
       // Create new card structure based on example
       const card = document.createElement("div");
       card.className = "movie-card";
+      // Delete actions (trash icon in top-right) - available to all users
+      if (currentUser) {
+        const actions = document.createElement("div");
+        actions.className = "movie-actions";
+        const delBtn = document.createElement("button");
+        delBtn.className = "icon-btn icon-btn-danger";
+        delBtn.type = "button";
+        delBtn.setAttribute("aria-label", "Delete movie");
+        delBtn.title = "Delete";
+        delBtn.innerHTML = `
+          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">\n            <polyline points=\"3 6 5 6 21 6\"></polyline>\n            <path d=\"M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6\"></path>\n            <path d=\"M10 11v6\"></path>\n            <path d=\"M14 11v6\"></path>\n            <path d=\"M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2\"></path>\n          </svg>`;
+        delBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          showDeleteModal(m.id, m.title);
+        });
+        actions.appendChild(delBtn);
+        card.appendChild(actions);
+      }
       
       const top = document.createElement("div");
       top.className = "movie-top";
@@ -233,6 +266,21 @@
       title.textContent = m.title || "";
       if (m.year) {
         title.innerHTML = `${m.title} <span style="opacity:.7;font-weight:500">(${m.year})</span>`;
+      }
+
+      // Delete actions (available to all users)
+      if (currentUser) {
+        const actions = document.createElement("div");
+        actions.className = "d-flex gap-2 mt-1";
+        const delBtn = document.createElement("button");
+        delBtn.className = "btn btn-sm btn-outline-danger";
+        delBtn.type = "button";
+        delBtn.textContent = "Delete";
+        delBtn.addEventListener("click", () => {
+          showDeleteModal(m.id, m.title);
+        });
+        actions.appendChild(delBtn);
+        meta.appendChild(actions);
       }
       
       // All user ratings section
@@ -652,6 +700,86 @@
     }, 10);
   };
 
+  // Delete Modal Functionality
+  let deleteModal;
+  let currentDeleteMovie = null;
+
+  // Initialize Bootstrap modal
+  const deleteModalEl = document.getElementById('deleteModal');
+  if (deleteModalEl && window.bootstrap) {
+    deleteModal = new bootstrap.Modal(deleteModalEl, {
+      keyboard: true,
+      backdrop: 'static',  // Prevent clicking outside to close
+      focus: true
+    });
+  }
+
+  function showDeleteModal(movieId, movieTitle) {
+    if (!deleteModal) return;
+    
+    currentDeleteMovie = { id: movieId, title: movieTitle };
+    
+    // Update modal content
+    const titleElement = document.getElementById('deleteMovieTitle');
+    if (titleElement) {
+      titleElement.textContent = `"${movieTitle}"`;
+    }
+    
+    // Reset button state
+    const confirmBtn = document.getElementById('confirmDeleteBtn');
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      const deleteText = confirmBtn.querySelector('.delete-text');
+      const deleteSpinner = confirmBtn.querySelector('.delete-spinner');
+      if (deleteText) deleteText.style.display = 'inline-flex';
+      if (deleteSpinner) deleteSpinner.classList.add('d-none');
+    }
+    
+    deleteModal.show();
+  }
+
+  // Handle delete confirmation
+  const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+  if (confirmDeleteBtn) {
+    confirmDeleteBtn.addEventListener('click', async () => {
+      if (!currentDeleteMovie) return;
+      
+      // Show loading state
+      confirmDeleteBtn.disabled = true;
+      const deleteText = confirmDeleteBtn.querySelector('.delete-text');
+      const deleteSpinner = confirmDeleteBtn.querySelector('.delete-spinner');
+      if (deleteText) deleteText.style.display = 'none';
+      if (deleteSpinner) deleteSpinner.classList.remove('d-none');
+      
+      try {
+        const ok = await deleteMovie(currentDeleteMovie.id);
+        if (ok) {
+          showToast("Movie deleted", "success");
+          loadLibrary(1);
+          deleteModal.hide();
+        } else {
+          showToast("Failed to delete movie", "danger");
+        }
+      } catch (error) {
+        console.error("Delete error:", error);
+        showToast("Failed to delete movie", "danger");
+      } finally {
+        // Reset button state
+        confirmDeleteBtn.disabled = false;
+        if (deleteText) deleteText.style.display = 'inline-flex';
+        if (deleteSpinner) deleteSpinner.classList.add('d-none');
+      }
+    });
+  }
+
+  // Clean up when modal is hidden
+  if (deleteModalEl) {
+    deleteModalEl.addEventListener('hidden.bs.modal', () => {
+      currentDeleteMovie = null;
+    });
+  }
+
   // Make functions globally available
   window.removeTag = removeTag;
+  window.showDeleteModal = showDeleteModal;
 })();

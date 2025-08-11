@@ -6,6 +6,7 @@ from ..models.movie import Movie
 from ..models.review import Review
 from ..models.tag import Tag, MovieTag, generate_unique_slug, PREDEFINED_TAGS
 from ..services import tmdb
+from flask import current_app
 
 movies_bp = Blueprint("movies", __name__)
 
@@ -224,6 +225,27 @@ def remove_tag(movie_id, tag_id):
     
     db.session.delete(movie_tag)
     try:
+        db.session.commit()
+        return jsonify({"ok": True})
+    except Exception:
+        db.session.rollback()
+        return jsonify({"ok": False, "error": "Database error"}), 500
+
+
+@movies_bp.delete("/api/movies/<int:movie_id>")
+@login_required
+@csrf.exempt
+def delete_movie(movie_id):
+    """
+    Delete a movie from the library. Any authenticated user may delete.
+    Also cascades to reviews and movie_tags (configured in models).
+    """
+    movie = Movie.query.get(movie_id)
+    if not movie:
+        return jsonify({"ok": False, "error": "Not found"}), 404
+
+    try:
+        db.session.delete(movie)
         db.session.commit()
         return jsonify({"ok": True})
     except Exception:
