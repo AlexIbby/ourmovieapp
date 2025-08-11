@@ -21,7 +21,7 @@ def dashboard():
 @login_required
 def list_movies():
     """
-    Minimal movie listing for Phase 1. Pagination only.
+    Movie listing with filtering support for genre, year, tags, and ratings.
     """
     try:
         page = int(request.args.get("page", 1))
@@ -33,9 +33,86 @@ def list_movies():
         per_page = 20
     per_page = max(1, min(50, per_page))
 
-    pagination = Movie.query.order_by(Movie.added_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    # Get filter parameters
+    genre_filter = request.args.get("genre")
+    year_from = request.args.get("year_from")
+    year_to = request.args.get("year_to")
+    tag_filter = request.args.get("tags")
+    min_rating = request.args.get("min_rating")
+    
+    # Parse filters
+    genres = []
+    if genre_filter:
+        genres = [g.strip() for g in genre_filter.split(",") if g.strip()]
+    
+    tag_names = []
+    if tag_filter:
+        tag_names = [t.strip() for t in tag_filter.split(",") if t.strip()]
+    
+    min_rating_val = None
+    if min_rating:
+        try:
+            min_rating_val = float(min_rating)
+        except ValueError:
+            pass
+    
+    year_from_val = None
+    year_to_val = None
+    if year_from:
+        try:
+            year_from_val = int(year_from)
+        except ValueError:
+            pass
+    if year_to:
+        try:
+            year_to_val = int(year_to)
+        except ValueError:
+            pass
+
+    # Start with base query - no complex JSON filtering in database
+    query = Movie.query.order_by(Movie.added_at.desc())
+    
+    # Apply non-JSON filters first
+    if year_from_val:
+        query = query.filter(Movie.year >= year_from_val)
+    if year_to_val:
+        query = query.filter(Movie.year <= year_to_val)
+    
+    # Handle tag and rating filtering with subqueries to avoid DISTINCT issues with JSON columns
+    if tag_names:
+        from ..models.tag import Tag, MovieTag
+        # Use subquery to get movie IDs that have the required tags
+        tag_movie_ids = db.session.query(MovieTag.movie_id).join(Tag).filter(Tag.name.in_(tag_names)).subquery()
+        query = query.filter(Movie.id.in_(db.session.query(tag_movie_ids.c.movie_id)))
+    
+    if min_rating_val is not None:
+        # Use subquery to get movie IDs that have ratings >= min_rating
+        rating_movie_ids = db.session.query(Review.movie_id).filter(Review.rating >= min_rating_val).subquery()
+        query = query.filter(Movie.id.in_(db.session.query(rating_movie_ids.c.movie_id)))
+
+    # Get all matching movies (we'll do genre filtering in Python)
+    all_movies = query.all()
+    
+    # Apply genre filtering in Python (more reliable than JSON database queries)
+    if genres:
+        filtered_movies = []
+        for movie in all_movies:
+            movie_genres = movie.genres or []
+            # Check if movie has any of the requested genres
+            if any(genre in movie_genres for genre in genres):
+                filtered_movies.append(movie)
+        all_movies = filtered_movies
+    
+    # Manual pagination
+    total = len(all_movies)
+    total_pages = (total + per_page - 1) // per_page  # Ceiling division
+    start_idx = (page - 1) * per_page
+    end_idx = start_idx + per_page
+    paginated_movies = all_movies[start_idx:end_idx]
+    
+    # Build response items
     items = []
-    for m in pagination.items:
+    for m in paginated_movies:
         poster_url = f"{tmdb.IMAGE_BASE}/w185{m.poster_path}" if m.poster_path else None
         
         # Get all ratings for this movie
@@ -54,6 +131,7 @@ def list_movies():
                 "title": m.title,
                 "year": m.year,
                 "poster_url": poster_url,
+                "genres": m.genres or [],
                 "ratings": user_ratings,
             }
         )
@@ -61,10 +139,10 @@ def list_movies():
     return jsonify(
         {
             "items": items,
-            "page": pagination.page,
-            "per_page": pagination.per_page,
-            "total": pagination.total,
-            "total_pages": pagination.pages if pagination.per_page else 1,
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": max(1, total_pages),
         }
     )
 
@@ -111,6 +189,7 @@ def add_movie():
         overview=md.get("overview"),
         runtime=md.get("runtime"),
         tmdb_rating=md.get("tmdb_rating"),
+        genres=md.get("genres", []),
         added_by=current_user.id if current_user.is_authenticated else None,
     )
     db.session.add(movie)

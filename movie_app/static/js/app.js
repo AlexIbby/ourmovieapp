@@ -97,10 +97,6 @@
   const libraryGrid = $("#libraryGrid");
   const pagination = $("#pagination");
 
-  if (libraryGrid) {
-    initializeApp();
-  }
-
   async function initializeApp() {
     try {
       // Get current user info
@@ -266,6 +262,18 @@
       title.textContent = m.title || "";
       if (m.year) {
         title.innerHTML = `${m.title} <span style="opacity:.7;font-weight:500">(${m.year})</span>`;
+      }
+      
+      // Add genres section under poster (as requested)
+      const genresSection = document.createElement("div");
+      genresSection.className = "movie-genres";
+      if (m.genres && m.genres.length > 0) {
+        m.genres.forEach(genre => {
+          const genreBadge = document.createElement("span");
+          genreBadge.className = "genre-badge";
+          genreBadge.textContent = genre;
+          genresSection.appendChild(genreBadge);
+        });
       }
 
       // Delete actions (available to all users)
@@ -436,6 +444,7 @@
 
       // Assemble the card
       meta.appendChild(title);
+      meta.appendChild(genresSection);
       meta.appendChild(ratingsSection);
       meta.appendChild(tagsSection);
       
@@ -777,6 +786,326 @@
     deleteModalEl.addEventListener('hidden.bs.modal', () => {
       currentDeleteMovie = null;
     });
+  }
+
+  // Filtering functionality
+  let currentFilters = {};
+  let availableGenres = new Set();
+  let availableTags = new Set();
+  
+  // Filter UI elements
+  const genreFilter = document.getElementById('genreFilter');
+  const yearFromFilter = document.getElementById('yearFromFilter');
+  const yearToFilter = document.getElementById('yearToFilter');
+  const tagFilter = document.getElementById('tagFilter');
+  const ratingFilter = document.getElementById('ratingFilter');
+  const applyFiltersBtn = document.getElementById('applyFilters');
+  const clearFiltersBtn = document.getElementById('clearFilters');
+  
+  // Genre checklist elements
+  const genreChecklist = document.getElementById('genreChecklist');
+  const genreSelectedInfo = document.getElementById('genreSelectedInfo');
+  const genreCheckboxes = document.getElementById('genreCheckboxes');
+  const clearGenresBtn = document.getElementById('clearGenresBtn');
+  const selectedCountSpan = document.querySelector('.selected-count');
+  
+  // Initialize genre checklist functionality
+  let selectedGenres = new Set();
+  let allGenres = [];
+  
+  function initGenreChecklist() {
+    if (!genreChecklist) return;
+    
+    // Clear genres button
+    if (clearGenresBtn) {
+      clearGenresBtn.addEventListener('click', clearGenreSelection);
+    }
+  }
+  
+  function updateGenreOptions(genres) {
+    allGenres = genres.sort();
+    renderGenreCheckboxes();
+    updateSelectedCount();
+    syncGenreFilter(); // Keep hidden select in sync
+  }
+  
+  function renderGenreCheckboxes() {
+    if (!genreCheckboxes) return;
+    
+    genreCheckboxes.innerHTML = '';
+    
+    allGenres.forEach(genre => {
+      const item = document.createElement('label');
+      item.className = 'genre-checkbox-item';
+      
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = genre;
+      checkbox.checked = selectedGenres.has(genre);
+      checkbox.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          selectedGenres.add(genre);
+        } else {
+          selectedGenres.delete(genre);
+        }
+        updateSelectedCount();
+        syncGenreFilter();
+      });
+      
+      const customCheckbox = document.createElement('div');
+      customCheckbox.className = 'genre-checkbox';
+      customCheckbox.innerHTML = `
+        <svg class="genre-checkbox-check" width="8" height="8" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+        </svg>
+      `;
+      
+      const label = document.createElement('span');
+      label.className = 'genre-checkbox-label';
+      label.textContent = genre;
+      
+      item.appendChild(checkbox);
+      item.appendChild(customCheckbox);
+      item.appendChild(label);
+      genreCheckboxes.appendChild(item);
+    });
+  }
+  
+  function updateSelectedCount() {
+    if (selectedCountSpan) {
+      const count = selectedGenres.size;
+      selectedCountSpan.textContent = `${count} genre${count !== 1 ? 's' : ''} selected`;
+    }
+  }
+  
+  function syncGenreFilter() {
+    // Keep the hidden select in sync for existing filter logic
+    if (genreFilter) {
+      Array.from(genreFilter.options).forEach(option => {
+        option.selected = selectedGenres.has(option.value) && option.value !== '';
+      });
+    }
+  }
+  
+  function clearGenreSelection() {
+    selectedGenres.clear();
+    // Uncheck all checkboxes
+    const checkboxes = genreCheckboxes.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => cb.checked = false);
+    updateSelectedCount();
+    syncGenreFilter();
+  }
+  
+  // Update available filters based on current movies
+  function updateFilterOptions(movies) {
+    // Collect all unique genres and tags
+    movies.forEach(movie => {
+      if (movie.genres) {
+        movie.genres.forEach(genre => availableGenres.add(genre));
+      }
+    });
+    
+    // Update custom genre multiselect
+    const genreList = Array.from(availableGenres).sort();
+    updateGenreOptions(genreList);
+    
+    // Update hidden genre filter for backwards compatibility
+    if (genreFilter) {
+      const currentGenres = Array.from(genreFilter.selectedOptions).map(opt => opt.value);
+      genreFilter.innerHTML = '<option value="">All Genres</option>';
+      genreList.forEach(genre => {
+        const option = document.createElement('option');
+        option.value = genre;
+        option.textContent = genre;
+        if (currentGenres.includes(genre)) {
+          option.selected = true;
+        }
+        genreFilter.appendChild(option);
+      });
+    }
+    
+    // Get available tags via API and update tag filter
+    if (tagFilter) {
+      fetchAvailableTags().then(tags => {
+        const currentTags = Array.from(tagFilter.selectedOptions).map(opt => opt.value);
+        tagFilter.innerHTML = '<option value="">All Tags</option>';
+        tags.forEach(tag => {
+          const option = document.createElement('option');
+          option.value = tag.name;
+          option.textContent = tag.name;
+          if (currentTags.includes(tag.name)) {
+            option.selected = true;
+          }
+          tagFilter.appendChild(option);
+        });
+      });
+    }
+  }
+  
+  // Fetch all available tags
+  async function fetchAvailableTags() {
+    try {
+      const predefinedResult = await apiGet('/api/tags/predefined');
+      // Also get custom tags by looking at existing movie tags
+      // For now, just return predefined tags
+      return predefinedResult.tags || [];
+    } catch (e) {
+      console.error('Failed to fetch tags:', e);
+      return [];
+    }
+  }
+  
+  // Apply filters and reload library
+  async function applyFilters() {
+    const filters = {};
+    
+    // Genre filter
+    const selectedGenres = Array.from(genreFilter.selectedOptions)
+      .map(opt => opt.value)
+      .filter(val => val);
+    if (selectedGenres.length > 0) {
+      filters.genre = selectedGenres.join(',');
+    }
+    
+    // Year filters
+    if (yearFromFilter.value) {
+      filters.year_from = yearFromFilter.value;
+    }
+    if (yearToFilter.value) {
+      filters.year_to = yearToFilter.value;
+    }
+    
+    // Tag filter
+    const selectedTags = Array.from(tagFilter.selectedOptions)
+      .map(opt => opt.value)
+      .filter(val => val);
+    if (selectedTags.length > 0) {
+      filters.tags = selectedTags.join(',');
+    }
+    
+    // Rating filter
+    if (ratingFilter.value) {
+      filters.min_rating = ratingFilter.value;
+    }
+    
+    currentFilters = filters;
+    
+    // Update URL params for bookmarkability
+    const url = new URL(window.location);
+    url.search = '';  // Clear existing params
+    Object.keys(filters).forEach(key => {
+      url.searchParams.set(key, filters[key]);
+    });
+    window.history.replaceState({}, '', url);
+    
+    // Reload library with filters
+    await loadLibrary(1);
+  }
+  
+  // Clear all filters
+  function clearFilters() {
+    // Clear genre checklist
+    clearGenreSelection();
+    
+    if (genreFilter) genreFilter.selectedIndex = 0;
+    if (yearFromFilter) yearFromFilter.value = '';
+    if (yearToFilter) yearToFilter.value = '';
+    if (tagFilter) tagFilter.selectedIndex = 0;
+    if (ratingFilter) ratingFilter.selectedIndex = 0;
+    
+    currentFilters = {};
+    
+    // Clear URL params
+    const url = new URL(window.location);
+    url.search = '';
+    window.history.replaceState({}, '', url);
+    
+    loadLibrary(1);
+  }
+  
+  // Load filters from URL on page load
+  function loadFiltersFromURL() {
+    const url = new URL(window.location);
+    
+    if (url.searchParams.get('genre')) {
+      const genres = url.searchParams.get('genre').split(',');
+      // Load into genre checklist
+      selectedGenres = new Set(genres);
+      
+      // Also update the hidden select for compatibility
+      if (genreFilter) {
+        Array.from(genreFilter.options).forEach(opt => {
+          opt.selected = genres.includes(opt.value);
+        });
+      }
+    }
+    
+    if (url.searchParams.get('year_from') && yearFromFilter) {
+      yearFromFilter.value = url.searchParams.get('year_from');
+    }
+    
+    if (url.searchParams.get('year_to') && yearToFilter) {
+      yearToFilter.value = url.searchParams.get('year_to');
+    }
+    
+    if (url.searchParams.get('tags') && tagFilter) {
+      const tags = url.searchParams.get('tags').split(',');
+      Array.from(tagFilter.options).forEach(opt => {
+        opt.selected = tags.includes(opt.value);
+      });
+    }
+    
+    if (url.searchParams.get('min_rating') && ratingFilter) {
+      ratingFilter.value = url.searchParams.get('min_rating');
+    }
+  }
+  
+  // Update loadLibrary to use filters
+  const originalLoadLibrary = loadLibrary;
+  loadLibrary = async function(page) {
+    try {
+      let url = `/api/movies?page=${page || 1}`;
+      
+      // Add filter parameters
+      Object.keys(currentFilters).forEach(key => {
+        url += `&${key}=${encodeURIComponent(currentFilters[key])}`;
+      });
+      
+      const data = await apiGet(url);
+      renderLibrary(data.items || []);
+      renderPagination(data.total_pages || 1, data.page || 1);
+      
+      // Update filter options based on all movies (not just filtered results)
+      if (page === 1) {
+        // Fetch unfiltered movies to get all available options
+        const allMoviesData = await apiGet('/api/movies?page=1&per_page=1000');
+        updateFilterOptions(allMoviesData.items || []);
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Failed to load library", "danger");
+    }
+  };
+  
+  // Event listeners
+  if (applyFiltersBtn) {
+    applyFiltersBtn.addEventListener('click', applyFilters);
+  }
+  
+  if (clearFiltersBtn) {
+    clearFiltersBtn.addEventListener('click', clearFilters);
+  }
+  
+  // Load filters from URL on initial page load
+  loadFiltersFromURL();
+
+  // Initialize components and app
+  if (libraryGrid) {
+    // Initialize genre checklist
+    initGenreChecklist();
+    
+    // Initialize the app
+    initializeApp();
   }
 
   // Make functions globally available

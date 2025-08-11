@@ -1,15 +1,96 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="d-flex align-items-center gap-2 mb-3">
-  <div class="input-group">
-    <span class="input-group-text" title="Search">
-      <svg width="22" height="22" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" focusable="false" style="display:block">
-        <path fill-rule="evenodd" d="M8.5 3a5.5 5.5 0 0 1 4.27 8.99l3.12 3.12a.75.75 0 1 1-1.06 1.06l-3.12-3.12A5.5 5.5 0 1 1 8.5 3zm0 1.5a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" clip-rule="evenodd" />
-      </svg>
-    </span>
-    <input id="searchInput" class="form-control" type="search" placeholder="Search TMDB for a movie…" autocomplete="off">
+<!-- Tabbed Interface for Search and Filters -->
+<div class="search-filter-tabs mb-3">
+  <!-- Tab Navigation -->
+  <ul class="nav nav-pills search-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="search-tab" data-bs-toggle="pill" data-bs-target="#search-pane" type="button" role="tab" aria-controls="search-pane" aria-selected="true">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" class="me-1">
+          <path fill-rule="evenodd" d="M8.5 3a5.5 5.5 0 0 1 4.27 8.99l3.12 3.12a.75.75 0 1 1-1.06 1.06l-3.12-3.12A5.5 5.5 0 1 1 8.5 3zm0 1.5a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" clip-rule="evenodd" />
+        </svg>
+        Search Movies
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="filter-tab" data-bs-toggle="pill" data-bs-target="#filter-pane" type="button" role="tab" aria-controls="filter-pane" aria-selected="false">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" class="me-1">
+          <path fill-rule="evenodd" d="M2.628 1.601C5.028 1.206 7.49 1 10 1s4.973.206 7.372.601a.75.75 0 01.628.74v2.288a2.25 2.25 0 01-.659 1.59l-4.682 4.683a2.25 2.25 0 00-.659 1.59v3.037c0 .684-.31 1.33-.844 1.757l-1.937 1.55A.75.75 0 018 18.25v-5.757a2.25 2.25 0 00-.659-1.591L2.659 6.22A2.25 2.25 0 012 4.629V2.34a.75.75 0 01.628-.74z" clip-rule="evenodd" />
+        </svg>
+        Filter Library
+      </button>
+    </li>
+  </ul>
+
+  <!-- Tab Content -->
+  <div class="tab-content search-tab-content">
+    <!-- Search Tab -->
+    <div class="tab-pane fade show active" id="search-pane" role="tabpanel" aria-labelledby="search-tab">
+      <div class="d-flex align-items-center gap-2">
+        <div class="input-group">
+          <span class="input-group-text" title="Search">
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" focusable="false" style="display:block">
+              <path fill-rule="evenodd" d="M8.5 3a5.5 5.5 0 0 1 4.27 8.99l3.12 3.12a.75.75 0 1 1-1.06 1.06l-3.12-3.12A5.5 5.5 0 1 1 8.5 3zm0 1.5a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" clip-rule="evenodd" />
+            </svg>
+          </span>
+          <input id="searchInput" class="form-control" type="search" placeholder="Search TMDB for a movie…" autocomplete="off">
+        </div>
+        <button id="clearSearchBtn" class="btn btn-outline-secondary">Clear</button>
+      </div>
+    </div>
+
+    <!-- Filter Tab -->
+    <div class="tab-pane fade" id="filter-pane" role="tabpanel" aria-labelledby="filter-tab">
+      <div class="filter-container-compact">
+        <div class="filter-row">
+          <div class="filter-group">
+            <label class="filter-label">Genre</label>
+            <div class="genre-checklist" id="genreChecklist">
+              <div class="genre-selected-info" id="genreSelectedInfo">
+                <span class="selected-count">0 genres selected</span>
+                <button type="button" class="clear-genres-btn" id="clearGenresBtn">Clear All</button>
+              </div>
+              <div class="genre-options" id="genreCheckboxes">
+                <!-- Checkboxes will be populated by JavaScript -->
+              </div>
+            </div>
+            <select id="genreFilter" class="filter-select d-none" multiple>
+              <option value="">All Genres</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">Year From</label>
+            <input id="yearFromFilter" type="number" class="filter-input" placeholder="1900" min="1900" max="2030">
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">Year To</label>
+            <input id="yearToFilter" type="number" class="filter-input" placeholder="2030" min="1900" max="2030">
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">User Tags</label>
+            <select id="tagFilter" class="filter-select" multiple>
+              <option value="">All Tags</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">Min Rating</label>
+            <select id="ratingFilter" class="filter-select">
+              <option value="">Any Rating</option>
+              <option value="1">1+ Stars</option>
+              <option value="2">2+ Stars</option>
+              <option value="3">3+ Stars</option>
+              <option value="4">4+ Stars</option>
+              <option value="5">5 Stars Only</option>
+            </select>
+          </div>
+        </div>
+        <div class="filter-buttons">
+          <button id="applyFilters" class="filter-btn">Apply Filters</button>
+          <button id="clearFilters" class="filter-btn clear">Clear All</button>
+        </div>
+      </div>
+    </div>
   </div>
-  <button id="clearSearchBtn" class="btn btn-outline-secondary">Clear</button>
 </div>
 
 <div id="searchSection" class="mb-4 d-none">

@@ -15,6 +15,7 @@ class Movie(db.Model):
     overview = db.Column(db.Text)
     runtime = db.Column(db.Integer)
     tmdb_rating = db.Column(db.Numeric(3, 1))
+    genres = db.Column(db.JSON, default=list)
     added_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     added_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
