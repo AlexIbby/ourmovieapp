@@ -163,3 +163,7 @@ background keys do not commit.txt
 
 # Cache files
 http_cache.sqlite
+
+# AI/LLM documentation files
+CLAUDE.md
+agents.md
