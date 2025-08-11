@@ -426,6 +426,38 @@ html, body {
 .rating__label:nth-of-type(4) .rating__star-line { animation-delay: .12s; }
 .rating__label:nth-of-type(5) .rating__star-line { animation-delay: .16s; }
 
+/* Pre-click preview (hover/touch) styling */
+/* These rules gently highlight up-to-N stars when the container has data-preview="N" */
+.rating__stars[data-preview="1"] .rating__label:nth-of-type(-n+1) .rating__star-fill,
+.rating__stars[data-preview="2"] .rating__label:nth-of-type(-n+2) .rating__star-fill,
+.rating__stars[data-preview="3"] .rating__label:nth-of-type(-n+3) .rating__star-fill,
+.rating__stars[data-preview="4"] .rating__label:nth-of-type(-n+4) .rating__star-fill,
+.rating__stars[data-preview="5"] .rating__label:nth-of-type(-n+5) .rating__star-fill {
+  fill: var(--yellow);
+}
+
+.rating__stars[data-preview="1"] .rating__label:nth-of-type(-n+1) .rating__star-stroke,
+.rating__stars[data-preview="2"] .rating__label:nth-of-type(-n+2) .rating__star-stroke,
+.rating__stars[data-preview="3"] .rating__label:nth-of-type(-n+3) .rating__star-stroke,
+.rating__stars[data-preview="4"] .rating__label:nth-of-type(-n+4) .rating__star-stroke,
+.rating__stars[data-preview="5"] .rating__label:nth-of-type(-n+5) .rating__star-stroke {
+  stroke: var(--yellow);
+  opacity: .85;
+}
+
+/* Subtle scale to hint interaction; avoids the click pop animation */
+.rating__stars[data-preview] .rating__label .rating__star {
+  transition: transform .15s ease;
+}
+
+.rating__stars[data-preview="1"] .rating__label:nth-of-type(-n+1) .rating__star,
+.rating__stars[data-preview="2"] .rating__label:nth-of-type(-n+2) .rating__star,
+.rating__stars[data-preview="3"] .rating__label:nth-of-type(-n+3) .rating__star,
+.rating__stars[data-preview="4"] .rating__label:nth-of-type(-n+4) .rating__star,
+.rating__stars[data-preview="5"] .rating__label:nth-of-type(-n+5) .rating__star {
+  transform: scale(1.06);
+}
+
 /* Pastel Tags */
 .tags {
   display: flex;

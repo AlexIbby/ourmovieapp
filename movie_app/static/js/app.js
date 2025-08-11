@@ -351,19 +351,22 @@
           // Append all inputs first, then all labels
           inputs.forEach(input => starsContainer.appendChild(input));
           labels.forEach(label => starsContainer.appendChild(label));
-          
+
           ratingForm.appendChild(starsContainer);
-          
+
           const readout = document.createElement("span");
           readout.className = "rating-readout";
           readout.id = `rating-readout-${m.id}`;
           readout.textContent = "No rating";
-          
+
           ratingContainer.appendChild(ratingForm);
           ratingContainer.appendChild(readout);
-          
+
           row.appendChild(who);
           row.appendChild(ratingContainer);
+
+          // Enable pre-click preview interactions (hover/touch)
+          enableRatingPreview(starsContainer);
         } else {
           // Show read-only rating
           const ratingDisplay = document.createElement("div");
@@ -697,6 +700,62 @@
     document.querySelectorAll('.rating__star:empty').forEach(el => {
       el.innerHTML = STAR;
     });
+  }
+
+  // Add subtle pre-click preview on hover/touch without changing click animation
+  function enableRatingPreview(starsContainer) {
+    if (!starsContainer) return;
+    const labels = Array.from(starsContainer.querySelectorAll('.rating__label'));
+    const inputs = Array.from(starsContainer.querySelectorAll('.rating__input'));
+
+    const clearAllPreviews = () => {
+      document.querySelectorAll('.rating__stars[data-preview]').forEach(el => el.removeAttribute('data-preview'));
+    };
+    const setPreview = (n) => {
+      if (!Number.isFinite(n) || n < 1 || n > 5) return;
+      // Ensure only this widget shows a preview
+      clearAllPreviews();
+      starsContainer.setAttribute('data-preview', String(n));
+    };
+    const clearPreview = () => {
+      starsContainer.removeAttribute('data-preview');
+    };
+
+    labels.forEach((label, idx) => {
+      label.addEventListener('mouseenter', () => setPreview(idx + 1));
+      label.addEventListener('focus', () => setPreview(idx + 1));
+      label.addEventListener('mouseleave', clearPreview);
+      label.addEventListener('blur', clearPreview);
+    });
+    starsContainer.addEventListener('mouseleave', clearPreview);
+
+    // When an actual value is selected, clear preview so click animation shows unobstructed
+    inputs.forEach((input) => {
+      input.addEventListener('change', clearPreview);
+      input.addEventListener('click', clearPreview);
+    });
+
+    // Touch support: show preview as finger slides across stars
+    const handleTouch = (ev) => {
+      if (!ev.touches || ev.touches.length === 0) return;
+      const touch = ev.touches[0];
+      const x = touch.clientX;
+      let chosen = 0;
+      labels.forEach((label, i) => {
+        const r = label.getBoundingClientRect();
+        if (x >= r.left && x <= r.right) {
+          chosen = i + 1;
+        } else if (x > r.right) {
+          chosen = Math.max(chosen, i + 1);
+        }
+      });
+      if (chosen > 0) setPreview(chosen);
+      // Prevent page scroll while scrubbing rating on touch
+      ev.preventDefault();
+    };
+    starsContainer.addEventListener('touchstart', handleTouch, { passive: false });
+    starsContainer.addEventListener('touchmove', handleTouch, { passive: false });
+    starsContainer.addEventListener('touchend', clearPreview);
   }
 
   // Call after library renders
