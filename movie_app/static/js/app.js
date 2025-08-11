@@ -661,7 +661,8 @@
       if (result.ok) {
         updateAnimatedStarReadout(movieId, rating);
         showToast("Rating saved", "success");
-        loadLibrary(1);
+        // Do not reload the entire library here; only this card needs updating.
+        // Re-rendering the whole grid causes every star widget to re-init and animate.
       } else {
         showToast(result.error || "Failed to save rating", "danger");
       }
