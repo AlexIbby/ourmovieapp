@@ -39,6 +39,7 @@ def list_movies():
     year_to = request.args.get("year_to")
     tag_filter = request.args.get("tags")
     min_rating = request.args.get("min_rating")
+    unrated_only = (request.args.get("unrated") or "").lower() in ("1", "true", "yes", "on")
     
     # Parse filters
     genres = []
@@ -89,6 +90,11 @@ def list_movies():
         # Use subquery to get movie IDs that have ratings >= min_rating
         rating_movie_ids = db.session.query(Review.movie_id).filter(Review.rating >= min_rating_val).subquery()
         query = query.filter(Movie.id.in_(db.session.query(rating_movie_ids.c.movie_id)))
+
+    if unrated_only:
+        # Exclude movies that current user has rated
+        rated_ids_sq = db.session.query(Review.movie_id).filter(Review.user_id == current_user.id).subquery()
+        query = query.filter(~Movie.id.in_(db.session.query(rated_ids_sq.c.movie_id)))
 
     # Get all matching movies (we'll do genre filtering in Python)
     all_movies = query.all()

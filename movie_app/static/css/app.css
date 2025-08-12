@@ -1254,6 +1254,27 @@ html[data-bs-theme="dark"] #deleteModal .alert-warning {
   color: #fff3cd;
 }
 
+/*
+  iOS Safari zooms the page when focusing inputs with font-size < 16px.
+  Ensure a minimum 16px font-size for form controls on small screens.
+  This prevents the unwanted zoom without impacting desktop layout.
+*/
+@media (max-width: 768px) {
+  .tag-input,
+  .filter-input,
+  .filter-select,
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="number"],
+  input[type="password"],
+  input[type="tel"],
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 html[data-bs-theme="dark"] #deleteModal .text-warning-emphasis {
   color: #ffda6a !important;
 }

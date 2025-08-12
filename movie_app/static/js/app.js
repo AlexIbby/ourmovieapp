@@ -1044,10 +1044,13 @@
       if (result.ok) {
         updateAnimatedStarReadout(movieId, rating);
         showToast("Rating saved", "success");
-        // Do not reload the entire library here; only this card needs updating.
-        // Re-rendering the whole grid causes every star widget to re-init and animate.
-        // But refresh the stats to show updated unrated count
-        loadLibraryStats();
+        // If filtering by unrated, refresh the list to remove this movie
+        if (typeof currentFilters !== 'undefined' && currentFilters.unrated === 'true') {
+          await loadLibrary(1);
+        } else {
+          // Otherwise just refresh the stats
+          loadLibraryStats();
+        }
       } else {
         showToast(result.error || "Failed to save rating", "danger");
       }
@@ -1122,6 +1125,7 @@
     });
 
     // Touch support: show preview as finger slides across stars
+    let lastChosen = 0;
     const handleTouch = (ev) => {
       if (!ev.touches || ev.touches.length === 0) return;
       const touch = ev.touches[0];
@@ -1135,13 +1139,32 @@
           chosen = Math.max(chosen, i + 1);
         }
       });
-      if (chosen > 0) setPreview(chosen);
+      if (chosen > 0) {
+        lastChosen = chosen;
+        setPreview(chosen);
+      }
       // Prevent page scroll while scrubbing rating on touch
       ev.preventDefault();
     };
     starsContainer.addEventListener('touchstart', handleTouch, { passive: false });
     starsContainer.addEventListener('touchmove', handleTouch, { passive: false });
-    starsContainer.addEventListener('touchend', clearPreview);
+    starsContainer.addEventListener('touchend', (ev) => {
+      // Commit the last chosen star as the selection on touchend
+      if (lastChosen > 0) {
+        const inputs = Array.from(starsContainer.querySelectorAll('.rating__input'));
+        const input = inputs[lastChosen - 1];
+        if (input) {
+          // Mark checked and dispatch change so save occurs
+          const prevChecked = input.checked;
+          input.checked = true;
+          if (!prevChecked) {
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }
+      }
+      clearPreview();
+      lastChosen = 0;
+    }, { passive: false });
   }
 
   // Call after library renders
@@ -1246,6 +1269,7 @@
   const ratingFilter = document.getElementById('ratingFilter');
   const applyFiltersBtn = document.getElementById('applyFilters');
   const clearFiltersBtn = document.getElementById('clearFilters');
+  const unratedFilterBtn = document.getElementById('unratedFilterBtn');
   
   // Genre checklist elements
   const genreChecklist = document.getElementById('genreChecklist');
@@ -1432,9 +1456,14 @@
     if (ratingFilter.value) {
       filters.min_rating = ratingFilter.value;
     }
-    
+
+    // Preserve unrated toggle if active
+    if (currentFilters.unrated === 'true') {
+      filters.unrated = 'true';
+    }
+
     currentFilters = filters;
-    
+
     // Update URL params for bookmarkability
     const url = new URL(window.location);
     url.search = '';  // Clear existing params
@@ -1442,9 +1471,12 @@
       url.searchParams.set(key, filters[key]);
     });
     window.history.replaceState({}, '', url);
-    
+
     // Reload library with filters
     await loadLibrary(1);
+
+    // Sync unrated button UI
+    updateUnratedButtonState();
   }
   
   // Clear all filters
@@ -1466,6 +1498,9 @@
     window.history.replaceState({}, '', url);
     
     loadLibrary(1);
+
+    // Sync unrated button UI
+    updateUnratedButtonState();
   }
   
   // Load filters from URL on page load
@@ -1503,6 +1538,17 @@
     if (url.searchParams.get('min_rating') && ratingFilter) {
       ratingFilter.value = url.searchParams.get('min_rating');
     }
+
+    // Unrated toggle
+    if (url.searchParams.get('unrated')) {
+      const val = (url.searchParams.get('unrated') || '').toLowerCase();
+      if (['1','true','yes','on'].includes(val)) {
+        currentFilters.unrated = 'true';
+      }
+    }
+
+    // Sync unrated button UI
+    updateUnratedButtonState();
   }
   
   // Update loadLibrary to use filters
@@ -1539,9 +1585,40 @@
   if (applyFiltersBtn) {
     applyFiltersBtn.addEventListener('click', applyFilters);
   }
-  
+
   if (clearFiltersBtn) {
     clearFiltersBtn.addEventListener('click', clearFilters);
+  }
+
+  // Unrated-only toggle
+  function updateUnratedButtonState() {
+    if (!unratedFilterBtn) return;
+    const active = currentFilters.unrated === 'true';
+    unratedFilterBtn.classList.toggle('btn-primary', active);
+    unratedFilterBtn.classList.toggle('btn-outline-primary', !active);
+    unratedFilterBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  }
+
+  if (unratedFilterBtn) {
+    unratedFilterBtn.addEventListener('click', async () => {
+      const active = currentFilters.unrated === 'true';
+      // Toggle
+      if (active) {
+        delete currentFilters.unrated;
+      } else {
+        currentFilters.unrated = 'true';
+      }
+      // Update URL
+      const url = new URL(window.location);
+      url.search = '';
+      Object.keys(currentFilters).forEach(key => {
+        url.searchParams.set(key, currentFilters[key]);
+      });
+      window.history.replaceState({}, '', url);
+      // Refresh
+      updateUnratedButtonState();
+      await loadLibrary(1);
+    });
   }
   
   // Load filters from URL on initial page load
