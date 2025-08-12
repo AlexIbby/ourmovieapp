@@ -1,4 +1,5 @@
 from typing import List, Dict, Any
+import re
 from flask import Blueprint, jsonify, request, render_template, redirect, url_for
 from flask_login import login_required, current_user
 from ..extensions import db, csrf
@@ -370,13 +371,25 @@ def get_tags(movie_id):
 @movies_bp.get("/api/tags/predefined")
 @login_required
 def get_predefined_tags():
-    return jsonify({"tags": PREDEFINED_TAGS})
+    # Return only well-formed predefined tags
+    def is_valid_tag_name(name: Any) -> bool:
+        return isinstance(name, str) and bool(name.strip())
+
+    cleaned = [
+        {"name": t.get("name"), "color": t.get("color")}
+        for t in PREDEFINED_TAGS
+        if is_valid_tag_name(t.get("name"))
+    ]
+    return jsonify({"tags": cleaned})
 
 
 @movies_bp.get("/api/tags/all")
 @login_required
 def get_all_tags():
     """Get all tags (both predefined and user-created) for autocomplete suggestions."""
+    def is_valid_tag_name(name: Any) -> bool:
+        # Require a non-empty string with at least one letter
+        return isinstance(name, str) and bool(name.strip()) and bool(re.search(r"[A-Za-z]", name))
     # Get all existing tags from database
     existing_tags = Tag.query.all()
     
@@ -392,17 +405,19 @@ def get_all_tags():
     all_tags = []
     tag_names = set()
     
-    # Add predefined tags first
+    # Add predefined tags first (sanitized)
     for tag in PREDEFINED_TAGS:
-        if tag["name"] not in tag_names:
-            all_tags.append(tag)
-            tag_names.add(tag["name"])
+        name = tag.get("name")
+        if is_valid_tag_name(name) and name not in tag_names:
+            all_tags.append({"name": name, "color": tag.get("color")})
+            tag_names.add(name)
     
     # Add custom tags that aren't already in predefined
     for tag in db_tags:
-        if tag["name"] not in tag_names:
+        name = tag.get("name")
+        if is_valid_tag_name(name) and name not in tag_names:
             all_tags.append(tag)
-            tag_names.add(tag["name"])
+            tag_names.add(name)
     
     return jsonify({"tags": all_tags})
 
@@ -426,14 +441,21 @@ def search_tags():
     limit = max(1, min(50, limit))
 
     # Base: collect predefined tags matching query
+    def is_valid_tag_name(name: Any) -> bool:
+        # Require a non-empty string with at least one letter
+        return isinstance(name, str) and bool(name.strip()) and bool(re.search(r"[A-Za-z]", name))
+
     def tag_to_dict(t):
-        return {"name": t["name"], "color": t.get("color")}
+        name = t.get("name") if isinstance(t, dict) else None
+        return {"name": name, "color": (t.get("color") if isinstance(t, dict) else None)} if is_valid_tag_name(name) else None
 
     results = []
     seen = set()
 
     # Helper: add unique by name preserving order
     def add_unique(tag_dict):
+        if not tag_dict:
+            return
         name = tag_dict.get("name")
         if name and name not in seen:
             seen.add(name)
@@ -465,7 +487,8 @@ def search_tags():
         db_tags = Tag.query.order_by(Tag.name.asc()).limit(limit).all()
 
     for t in db_tags:
-        add_unique({"name": t.name, "color": t.get_color()})
+        if is_valid_tag_name(t.name):
+            add_unique({"name": t.name, "color": t.get_color()})
 
     # Enforce limit
     results = results[:limit]

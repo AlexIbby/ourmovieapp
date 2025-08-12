@@ -58,6 +58,28 @@ html, body {
   backdrop-filter: saturate(180%) blur(6px);
 }
 
+/* Mobile navbar tweaks: center title and make sticky */
+@media (max-width: 576px) {
+  .navbar {
+    position: sticky;
+    top: 0;
+    z-index: 1030; /* ensure it stays above content */
+    background-color: var(--bs-body-bg); /* theme-aware solid bg under blur */
+  }
+  .navbar .container-fluid {
+    position: relative;
+    min-height: 56px; /* keep enough height for centered brand */
+  }
+  .navbar-brand {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    margin: 0;
+  }
+  /* Hide non-essential badge to prevent overlap on small screens */
+  .navbar .login-badge { display: none; }
+}
+
 /* Make the "Logged in as" badge match .btn-sm size and lighten background */
 .navbar .login-badge {
   font-size: 0.875rem; /* match .btn-sm text size */

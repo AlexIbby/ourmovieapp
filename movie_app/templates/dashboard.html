@@ -110,7 +110,7 @@
 
 <div class="d-flex justify-content-between align-items-center mb-2">
   <div>
-    <h5 class="mb-0">Your Shared Library</h5>
+    <h5 class="mb-0" id="libraryHeading" tabindex="-1">Your Shared Library</h5>
     <div class="text-muted small" id="libraryStats">
       <span id="totalMoviesText">Loading...</span><br>
       <span id="unratedMoviesText">Loading...</span>
@@ -124,7 +124,7 @@
 </div>
 <div id="libraryGrid" class="row g-3"></div>
 
-<nav class="mt-3">
+<nav class="mt-3" aria-label="Movies pagination">
   <ul id="pagination" class="pagination"></ul>
 </nav>
 

@@ -639,22 +639,45 @@
     pagination.innerHTML = "";
     if (totalPages <= 1) return;
 
-    const createItem = (label, page, active = false, disabled = false) => {
+    const createItem = (label, page, active = false, disabled = false, ariaLabel = null) => {
       const li = document.createElement("li");
       li.className = `page-item ${active ? "active" : ""} ${disabled ? "disabled" : ""}`;
       const a = document.createElement("a");
       a.className = "page-link";
       a.href = "#";
       a.textContent = label;
-      a.addEventListener("click", (e) => {
+      if (ariaLabel) a.setAttribute("aria-label", ariaLabel);
+      if (active) a.setAttribute("aria-current", "page");
+      a.addEventListener("click", async (e) => {
         e.preventDefault();
-        if (!disabled) loadLibrary(page);
+        if (disabled) return;
+        await loadLibrary(page);
+        // Update URL page param (preserve other params)
+        try {
+          const url = new URL(window.location);
+          if (page && Number(page) > 1) {
+            url.searchParams.set('page', String(page));
+          } else {
+            url.searchParams.delete('page');
+          }
+          window.history.replaceState({}, '', url);
+        } catch {}
+        // Smooth scroll to the top of the library and move focus for a11y
+        const heading = document.getElementById('libraryHeading');
+        const target = heading || libraryGrid || document.body;
+        if (target && typeof target.scrollIntoView === 'function') {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        if (heading && typeof heading.focus === 'function') {
+          // Make sure focus change doesn't re-scroll
+          heading.focus({ preventScroll: true });
+        }
       });
       li.appendChild(a);
       return li;
     };
 
-    pagination.appendChild(createItem("«", Math.max(1, currentPage - 1), false, currentPage === 1));
+    pagination.appendChild(createItem("«", Math.max(1, currentPage - 1), false, currentPage === 1, "Previous page"));
 
     const start = Math.max(1, currentPage - 2);
     const end = Math.min(totalPages, currentPage + 2);
@@ -662,7 +685,7 @@
       pagination.appendChild(createItem(String(p), p, p === currentPage));
     }
 
-    pagination.appendChild(createItem("»", Math.min(totalPages, currentPage + 1), false, currentPage === totalPages));
+    pagination.appendChild(createItem("»", Math.min(totalPages, currentPage + 1), false, currentPage === totalPages, "Next page"));
   }
 
   // Old star rating functions removed - using new animated star system
@@ -1414,10 +1437,11 @@
   // Fetch all available tags
   async function fetchAvailableTags() {
     try {
-      const predefinedResult = await apiGet('/api/tags/predefined');
-      // Also get custom tags by looking at existing movie tags
-      // For now, just return predefined tags
-      return predefinedResult.tags || [];
+      // Use combined, sanitized tag list from backend (predefined + custom)
+      const all = await apiGet('/api/tags/all');
+      const tags = Array.isArray(all.tags) ? all.tags : [];
+      // Defensive: keep only objects with a non-empty string name
+      return tags.filter(t => t && typeof t.name === 'string' && t.name.trim().length > 0);
     } catch (e) {
       console.error('Failed to fetch tags:', e);
       return [];
