@@ -338,14 +338,67 @@ def add_tag(movie_id):
 @movies_bp.get("/api/movies/<int:movie_id>/tags")
 @login_required
 def get_tags(movie_id):
-    tags = db.session.query(Tag).join(MovieTag).filter(MovieTag.movie_id == movie_id).all()
-    return jsonify({"tags": [{"id": t.id, "name": t.name, "color": t.get_color()} for t in tags]})
+    # Join Tag, MovieTag, and User to get tag info with user who added it
+    tags_with_users = db.session.query(Tag, MovieTag.added_by).join(MovieTag).filter(MovieTag.movie_id == movie_id).all()
+    
+    tags_data = []
+    for tag, added_by_id in tags_with_users:
+        # Get username for the user who added the tag
+        username = None
+        if added_by_id:
+            from ..models.user import User
+            user = User.query.get(added_by_id)
+            if user:
+                username = user.username
+        
+        tags_data.append({
+            "id": tag.id,
+            "name": tag.name,
+            "color": tag.get_color(),
+            "added_by": username
+        })
+    
+    return jsonify({"tags": tags_data})
 
 
 @movies_bp.get("/api/tags/predefined")
 @login_required
 def get_predefined_tags():
     return jsonify({"tags": PREDEFINED_TAGS})
+
+
+@movies_bp.get("/api/tags/all")
+@login_required
+def get_all_tags():
+    """Get all tags (both predefined and user-created) for autocomplete suggestions."""
+    # Get all existing tags from database
+    existing_tags = Tag.query.all()
+    
+    # Convert to the same format as predefined tags
+    db_tags = []
+    for tag in existing_tags:
+        db_tags.append({
+            "name": tag.name,
+            "color": tag.get_color()
+        })
+    
+    # Combine predefined tags with existing tags, removing duplicates
+    all_tags = []
+    tag_names = set()
+    
+    # Add predefined tags first
+    for tag in PREDEFINED_TAGS:
+        if tag["name"] not in tag_names:
+            all_tags.append(tag)
+            tag_names.add(tag["name"])
+    
+    # Add custom tags that aren't already in predefined
+    for tag in db_tags:
+        if tag["name"] not in tag_names:
+            all_tags.append(tag)
+            tag_names.add(tag["name"])
+    
+    return jsonify({"tags": all_tags})
 
 
 @movies_bp.delete("/api/movies/<int:movie_id>/tags/<int:tag_id>")

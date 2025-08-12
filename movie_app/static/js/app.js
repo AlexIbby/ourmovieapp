@@ -316,6 +316,11 @@
   }
 
   function renderLibrary(items) {
+    // Clean up any existing dropdowns from previous renders
+    document.querySelectorAll('.tag-suggestions').forEach(dropdown => {
+      dropdown.remove();
+    });
+    
     libraryGrid.innerHTML = "";
     if (!items.length) {
       libraryGrid.innerHTML = `<div class="text-muted">No movies yet. Search above to add your first.</div>`;
@@ -561,30 +566,30 @@
         tagInput.placeholder = "Add tag...";
         tagInput.addEventListener("keypress", (e) => {
           if (e.key === "Enter" && tagInput.value.trim()) {
-            addTag(m.id, tagInput.value.trim());
+            addTagAndUpdateCache(m.id, tagInput.value.trim());
             tagInput.value = "";
+            document.getElementById(`dropdown-${m.id}`).classList.remove("show");
           }
         });
         
-        // Create dropdown for suggestions
+        // Create dropdown for suggestions (append to body to avoid z-index issues)
         const suggestionsDropdown = document.createElement("div");
         suggestionsDropdown.className = "tag-suggestions";
         suggestionsDropdown.id = `dropdown-${m.id}`;
-        suggestionsDropdown.style.display = "none";
+        document.body.appendChild(suggestionsDropdown);
         
         const inputWrapper = document.createElement("div");
         inputWrapper.className = "tag-input-wrapper";
         inputWrapper.appendChild(tagInput);
-        inputWrapper.appendChild(suggestionsDropdown);
         
         tagInputContainer.appendChild(inputWrapper);
         
         // Handle input focus/blur and typing for suggestions
         tagInput.addEventListener("focus", () => showTagSuggestions(m.id, tagInput.value));
-        tagInput.addEventListener("input", () => showTagSuggestions(m.id, tagInput.value));
+        tagInput.addEventListener("input", () => debouncedShowTagSuggestions(m.id, tagInput.value));
         tagInput.addEventListener("blur", (e) => {
           setTimeout(() => {
-            document.getElementById(`dropdown-${m.id}`).style.display = "none";
+            document.getElementById(`dropdown-${m.id}`).classList.remove("show");
           }, 200);
         });
         
@@ -662,20 +667,6 @@
   }
 
   // Tags functionality
-  async function addTag(movieId, tagName) {
-    try {
-      const result = await apiPost(`/api/movies/${movieId}/tags`, { name: tagName });
-      if (result.ok) {
-        loadMovieTags(movieId);
-        showToast(`Tag "${tagName}" added`, "success");
-      } else {
-        showToast(result.error || "Failed to add tag", "danger");
-      }
-    } catch (error) {
-      console.error("Error adding tag:", error);
-      showToast("Failed to add tag", "danger");
-    }
-  }
 
   async function removeTag(movieId, tagId, tagName) {
     try {
@@ -683,6 +674,16 @@
         method: "DELETE",
         credentials: "same-origin" 
       });
+      
+      // Update cached tags immediately
+      if (cachedMovieTags.has(movieId)) {
+        const currentTags = cachedMovieTags.get(movieId);
+        const index = currentTags.indexOf(tagName);
+        if (index > -1) {
+          currentTags.splice(index, 1);
+        }
+      }
+      
       loadMovieTags(movieId);
       showToast(`Tag "${tagName}" removed`, "success");
     } catch (error) {
@@ -698,6 +699,10 @@
       const tagCounter = document.getElementById(`tag-counter-${movieId}`);
       if (!tagsContainer) return;
       
+      // Update cache with fresh data
+      const tagNames = result.tags ? result.tags.map(tag => tag.name) : [];
+      cachedMovieTags.set(movieId, tagNames);
+      
       tagsContainer.innerHTML = "";
       const tagCount = result.tags ? result.tags.length : 0;
       
@@ -708,7 +713,15 @@
           tagButton.type = "button";
           tagButton.dataset.selected = "true";
           tagButton.dataset.tagId = tag.id;
-          tagButton.innerHTML = `<span class="dot"></span>${tag.name}`;
+          // Create tag content with dot and user symbol
+          let tagContent = `<span class="dot"></span>${tag.name}`;
+          
+          // Add user name if we know who added it
+          if (tag.added_by) {
+            tagContent += `<span class="tag-user-symbol">${tag.added_by}</span>`;
+          }
+          
+          tagButton.innerHTML = tagContent;
           
           // Add click handler to remove tag
           tagButton.addEventListener("click", () => {
@@ -729,22 +742,105 @@
     }
   }
 
+  // Cache all tags (predefined + existing) and current movie tags to avoid repeated API calls
+  let cachedAllTags = null;
+  let cachedMovieTags = new Map(); // Cache current tags per movie
+  
+  // Debounced function for tag suggestions to avoid API spam
+  const debouncedShowTagSuggestions = debounce(showTagSuggestions, 150);
+  
+  // Helper function to check if two strings are very similar
+  function areTagsSimilar(tag1, tag2, threshold = 0.8) {
+    const clean1 = tag1.toLowerCase().trim();
+    const clean2 = tag2.toLowerCase().trim();
+    
+    // Exact match
+    if (clean1 === clean2) return true;
+    
+    // Simple similarity based on character overlap
+    const longer = clean1.length > clean2.length ? clean1 : clean2;
+    const shorter = clean1.length > clean2.length ? clean2 : clean1;
+    
+    if (longer.length === 0) return true;
+    
+    // Check if shorter is contained in longer (handles plurals, etc.)
+    if (longer.includes(shorter) && shorter.length >= 3) return true;
+    
+    // Levenshtein distance-based similarity
+    const editDistance = getEditDistance(clean1, clean2);
+    const similarity = 1 - (editDistance / longer.length);
+    
+    return similarity >= threshold;
+  }
+  
+  // Simple Levenshtein distance calculation
+  function getEditDistance(a, b) {
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+    
+    const matrix = Array(a.length + 1).fill(null).map(() => Array(b.length + 1).fill(null));
+    
+    for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+    for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+    
+    for (let i = 1; i <= a.length; i++) {
+      for (let j = 1; j <= b.length; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j] + 1,     // deletion
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j - 1] + cost // substitution
+        );
+      }
+    }
+    
+    return matrix[a.length][b.length];
+  }
+  
   async function showTagSuggestions(movieId, searchTerm = "") {
     try {
-      const predefinedResult = await apiGet('/api/tags/predefined');
-      const currentTagsResult = await apiGet(`/api/movies/${movieId}/tags`);
+      // Use cached all tags if available, otherwise fetch them
+      if (!cachedAllTags) {
+        const allTagsResult = await apiGet('/api/tags/all');
+        cachedAllTags = allTagsResult.tags || [];
+      }
+      
+      // Use cached movie tags if available, otherwise fetch them
+      let currentTagNames = [];
+      if (cachedMovieTags.has(movieId)) {
+        currentTagNames = cachedMovieTags.get(movieId);
+      } else {
+        const currentTagsResult = await apiGet(`/api/movies/${movieId}/tags`);
+        currentTagNames = (currentTagsResult.tags || []).map(tag => tag.name);
+        cachedMovieTags.set(movieId, currentTagNames);
+      }
+      
       const dropdown = document.getElementById(`dropdown-${movieId}`);
       if (!dropdown) return;
+
+      // Position dropdown relative to the input field
+      const inputElement = document.querySelector(`#tags-${movieId} .tag-input`);
+      if (inputElement) {
+        const rect = inputElement.getBoundingClientRect();
+        dropdown.style.left = rect.left + 'px';
+        dropdown.style.top = (rect.bottom + 4) + 'px';
+        dropdown.style.width = rect.width + 'px';
+      }
       
-      const currentTagNames = (currentTagsResult.tags || []).map(tag => tag.name);
-      const availableTags = predefinedResult.tags.filter(tag => 
+      const searchLower = searchTerm.toLowerCase().trim();
+      const availableTags = cachedAllTags.filter(tag => 
         !currentTagNames.includes(tag.name) && 
-        tag.name.toLowerCase().includes(searchTerm.toLowerCase())
+        tag.name.toLowerCase().includes(searchLower)
       );
       
-      dropdown.innerHTML = "";
+      // Clear dropdown without causing reflow if possible
+      while (dropdown.firstChild) {
+        dropdown.removeChild(dropdown.firstChild);
+      }
       
       if (availableTags.length > 0) {
+        const fragment = document.createDocumentFragment();
+        
         availableTags.forEach(tag => {
           const option = document.createElement("div");
           option.className = "tag-suggestion";
@@ -760,35 +856,98 @@
             option.style.backgroundColor = "";
           });
           option.addEventListener("click", () => {
-            addTag(movieId, tag.name);
-            const input = dropdown.closest('.tag-input-wrapper').querySelector('.tag-input');
+            addTagAndUpdateCache(movieId, tag.name);
+            const input = document.querySelector(`#tags-${movieId} .tag-input`);
             if (input) input.value = "";
-            dropdown.style.display = "none";
+            dropdown.classList.remove("show");
           });
           
-          dropdown.appendChild(option);
+          fragment.appendChild(option);
         });
-        dropdown.style.display = "block";
+        
+        dropdown.appendChild(fragment);
+        dropdown.classList.add("show");
       } else if (searchTerm.trim()) {
-        // Show option to add custom tag
+        // Check for similar existing tags
+        const trimmedSearch = searchTerm.trim();
+        const similarTags = cachedAllTags.filter(tag => 
+          areTagsSimilar(tag.name, trimmedSearch) && 
+          !currentTagNames.includes(tag.name)
+        );
+        
+        const fragment = document.createDocumentFragment();
+        
+        // Show similar tags first if any exist
+        if (similarTags.length > 0) {
+          similarTags.forEach(tag => {
+            const option = document.createElement("div");
+            option.className = "tag-suggestion similar";
+            option.textContent = `${tag.name} (similar)`;
+            option.style.fontStyle = "italic";
+            option.style.color = "var(--movie-text-secondary)";
+            
+            option.addEventListener("click", () => {
+              addTagAndUpdateCache(movieId, tag.name);
+              const input = document.querySelector(`#tags-${movieId} .tag-input`);
+              if (input) input.value = "";
+              dropdown.classList.remove("show");
+            });
+            
+            fragment.appendChild(option);
+          });
+        }
+        
+        // Always show option to add the exact custom tag
         const customOption = document.createElement("div");
         customOption.className = "tag-suggestion custom";
-        customOption.textContent = `Add "${searchTerm}"`;
+        customOption.textContent = `Add "${trimmedSearch}"`;
         
         customOption.addEventListener("click", () => {
-          addTag(movieId, searchTerm);
-          const input = dropdown.closest('.tag-input-wrapper').querySelector('.tag-input');
+          addTagAndUpdateCache(movieId, trimmedSearch);
+          const input = document.querySelector(`#tags-${movieId} .tag-input`);
           if (input) input.value = "";
-          dropdown.style.display = "none";
+          dropdown.classList.remove("show");
         });
         
-        dropdown.appendChild(customOption);
-        dropdown.style.display = "block";
+        fragment.appendChild(customOption);
+        dropdown.appendChild(fragment);
+        dropdown.classList.add("show");
       } else {
-        dropdown.style.display = "none";
+        dropdown.classList.remove("show");
       }
     } catch (error) {
       console.error("Error loading tag suggestions:", error);
+      const dropdown = document.getElementById(`dropdown-${movieId}`);
+      if (dropdown) dropdown.classList.remove("show");
+    }
+  }
+
+  async function addTagAndUpdateCache(movieId, tagName) {
+    try {
+      const result = await apiPost(`/api/movies/${movieId}/tags`, { name: tagName });
+      if (result.ok) {
+        // Update cached movie tags immediately
+        if (cachedMovieTags.has(movieId)) {
+          const currentTags = cachedMovieTags.get(movieId);
+          if (!currentTags.includes(tagName)) {
+            currentTags.push(tagName);
+          }
+        }
+        
+        // If this is a new custom tag, refresh the all tags cache
+        const isNewCustomTag = !cachedAllTags || !cachedAllTags.some(tag => tag.name === tagName);
+        if (isNewCustomTag) {
+          cachedAllTags = null; // Force refresh on next use
+        }
+        
+        loadMovieTags(movieId);
+        showToast(`Tag "${tagName}" added`, "success");
+      } else {
+        showToast(result.error || "Failed to add tag", "danger");
+      }
+    } catch (error) {
+      console.error("Error adding tag:", error);
+      showToast("Failed to add tag", "danger");
     }
   }
 
@@ -1310,8 +1469,26 @@
   // Load filters from URL on initial page load
   loadFiltersFromURL();
 
+  // Handle window scroll and resize to reposition dropdowns
+  function repositionActiveDropdowns() {
+    document.querySelectorAll('.tag-suggestions.show').forEach(dropdown => {
+      const movieId = dropdown.id.replace('dropdown-', '');
+      const inputElement = document.querySelector(`#tags-${movieId} .tag-input`);
+      if (inputElement) {
+        const rect = inputElement.getBoundingClientRect();
+        dropdown.style.left = rect.left + 'px';
+        dropdown.style.top = (rect.bottom + 4) + 'px';
+        dropdown.style.width = rect.width + 'px';
+      }
+    });
+  }
+
   // Initialize components and app
   if (libraryGrid) {
+    // Add event listeners for dropdown repositioning
+    window.addEventListener('scroll', repositionActiveDropdowns);
+    window.addEventListener('resize', repositionActiveDropdowns);
+    
     // Initialize genre checklist
     initGenreChecklist();
     

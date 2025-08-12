@@ -500,6 +500,25 @@ button.tag {
   border-radius: 50%;
 }
 
+.tag-user-symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #000000;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 999px;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
+html[data-bs-theme="dark"] .tag-user-symbol {
+  background-color: #000000;
+  color: #ffffff;
+}
+
 .tag:focus-visible {
   box-shadow: 0 0 0 3px rgba(76, 125, 243, .35);
 }
@@ -569,17 +588,25 @@ button.tag {
 }
 
 .tag-suggestions {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
+  position: fixed;
   background: var(--movie-card);
   border: 1px solid var(--movie-border);
   border-radius: 10px;
-  z-index: 1000;
+  z-index: 9999;
   max-height: 200px;
   overflow-y: auto;
   box-shadow: 0 4px 6px rgba(0,0,0,.3);
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  visibility: hidden;
+  min-width: 200px;
+}
+
+.tag-suggestions.show {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
 }
 
 .tag-suggestion {
@@ -605,6 +632,13 @@ button.tag {
   font-style: italic;
   color: var(--movie-text);
   opacity: 0.8;
+}
+
+.tag-suggestion.similar {
+  font-style: italic;
+  color: var(--movie-text-secondary);
+  opacity: 0.9;
+  border-left: 3px solid var(--bs-warning);
 }
 
 /* Dark mode override for tag suggestions - use consistent dark theme colors */
