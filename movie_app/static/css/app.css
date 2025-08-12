@@ -149,11 +149,13 @@ html, body {
   height: 100%; /* Ensure cards fill available height */
   display: flex;
   flex-direction: column;
+  overflow: visible; /* Allow dropdowns to escape the card bounds */
 }
 
 .movie-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 15px 35px rgba(0,0,0,.18);
+  z-index: 3; /* Ensure hovered card stacks above neighbors */
 }
 
 .movie-top {
@@ -588,7 +590,7 @@ html[data-bs-theme="dark"] .tag-user-symbol {
 }
 
 .tag-suggestions {
-  position: fixed;
+  position: absolute;
   background: var(--movie-card);
   border: 1px solid var(--movie-border);
   border-radius: 10px;
@@ -601,12 +603,20 @@ html[data-bs-theme="dark"] .tag-user-symbol {
   transition: opacity 0.15s ease, transform 0.15s ease;
   visibility: hidden;
   min-width: 200px;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 100%;
 }
 
 .tag-suggestions.show {
   opacity: 1;
   transform: translateY(0);
   visibility: visible;
+}
+
+/* When a dropdown is open within a card, raise that card above others */
+.movie-card.is-elevated {
+  z-index: 10;
 }
 
 .tag-suggestion {

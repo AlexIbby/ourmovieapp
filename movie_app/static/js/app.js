@@ -568,28 +568,45 @@
           if (e.key === "Enter" && tagInput.value.trim()) {
             addTagAndUpdateCache(m.id, tagInput.value.trim());
             tagInput.value = "";
-            document.getElementById(`dropdown-${m.id}`).classList.remove("show");
+            const dd = document.getElementById(`dropdown-${m.id}`);
+            if (dd) {
+              dd.classList.remove("show");
+              const card = dd.closest('.movie-card');
+              if (card) card.classList.remove('is-elevated');
+            }
           }
         });
-        
-        // Create dropdown for suggestions (append to body to avoid z-index issues)
-        const suggestionsDropdown = document.createElement("div");
-        suggestionsDropdown.className = "tag-suggestions";
-        suggestionsDropdown.id = `dropdown-${m.id}`;
-        document.body.appendChild(suggestionsDropdown);
         
         const inputWrapper = document.createElement("div");
         inputWrapper.className = "tag-input-wrapper";
         inputWrapper.appendChild(tagInput);
-        
+
+        // Create dropdown for suggestions (attach inside wrapper for stable positioning)
+        const suggestionsDropdown = document.createElement("div");
+        suggestionsDropdown.className = "tag-suggestions";
+        suggestionsDropdown.id = `dropdown-${m.id}`;
+        inputWrapper.appendChild(suggestionsDropdown);
+        console.log('[tags] created dropdown', { id: suggestionsDropdown.id });
+
         tagInputContainer.appendChild(inputWrapper);
         
         // Handle input focus/blur and typing for suggestions
-        tagInput.addEventListener("focus", () => showTagSuggestions(m.id, tagInput.value));
-        tagInput.addEventListener("input", () => debouncedShowTagSuggestions(m.id, tagInput.value));
+        tagInput.addEventListener("focus", () => {
+          console.log('[tags] input focus', { movieId: m.id });
+          showTagSuggestions(m.id, tagInput.value);
+        });
+        tagInput.addEventListener("input", () => {
+          console.log('[tags] input typing', { movieId: m.id, value: tagInput.value });
+          debouncedShowTagSuggestions(m.id, tagInput.value);
+        });
         tagInput.addEventListener("blur", (e) => {
           setTimeout(() => {
-            document.getElementById(`dropdown-${m.id}`).classList.remove("show");
+            const dd = document.getElementById(`dropdown-${m.id}`);
+            if (dd) {
+              dd.classList.remove("show");
+              const card = dd.closest('.movie-card');
+              if (card) card.classList.remove('is-elevated');
+            }
           }, 200);
         });
         
@@ -742,12 +759,12 @@
     }
   }
 
-  // Cache all tags (predefined + existing) and current movie tags to avoid repeated API calls
-  let cachedAllTags = null;
+  // Cache current movie tags to avoid repeated API calls when excluding already-applied tags
+  let cachedAllTags = null; // deprecated for suggestions; kept for fallback only
   let cachedMovieTags = new Map(); // Cache current tags per movie
   
   // Debounced function for tag suggestions to avoid API spam
-  const debouncedShowTagSuggestions = debounce(showTagSuggestions, 150);
+  const debouncedShowTagSuggestions = debounce(showTagSuggestions, 100);
   
   // Helper function to check if two strings are very similar
   function areTagsSimilar(tag1, tag2, threshold = 0.8) {
@@ -797,14 +814,15 @@
     return matrix[a.length][b.length];
   }
   
+  let currentTagSuggestController = null;
   async function showTagSuggestions(movieId, searchTerm = "") {
     try {
-      // Use cached all tags if available, otherwise fetch them
-      if (!cachedAllTags) {
-        const allTagsResult = await apiGet('/api/tags/all');
-        cachedAllTags = allTagsResult.tags || [];
+      // Cancel any in-flight search to keep results snappy as user types
+      if (currentTagSuggestController) {
+        currentTagSuggestController.abort();
       }
-      
+      currentTagSuggestController = new AbortController();
+
       // Use cached movie tags if available, otherwise fetch them
       let currentTagNames = [];
       if (cachedMovieTags.has(movieId)) {
@@ -816,22 +834,63 @@
       }
       
       const dropdown = document.getElementById(`dropdown-${movieId}`);
-      if (!dropdown) return;
-
-      // Position dropdown relative to the input field
+      if (!dropdown) {
+        console.log('[tags] dropdown not found', { movieId });
+        return;
+      }
+      // No manual positioning needed; CSS positions absolute inside input wrapper
       const inputElement = document.querySelector(`#tags-${movieId} .tag-input`);
-      if (inputElement) {
-        const rect = inputElement.getBoundingClientRect();
-        dropdown.style.left = rect.left + 'px';
-        dropdown.style.top = (rect.bottom + 4) + 'px';
-        dropdown.style.width = rect.width + 'px';
+
+      // Optimistic UI: show a custom add option and a loading hint immediately
+      const qImmediate = (searchTerm || '').trim();
+      while (dropdown.firstChild) dropdown.removeChild(dropdown.firstChild);
+      if (qImmediate) {
+        console.log('[tags] optimistic render', { q: qImmediate });
+        const customImmediate = document.createElement("div");
+        customImmediate.className = "tag-suggestion custom";
+        customImmediate.textContent = `Add "${qImmediate}"`;
+        customImmediate.addEventListener("click", () => {
+          addTagAndUpdateCache(movieId, qImmediate);
+          if (inputElement) inputElement.value = "";
+          dropdown.classList.remove("show");
+          const card = dropdown.closest('.movie-card');
+          if (card) card.classList.remove('is-elevated');
+        });
+        const loadingRow = document.createElement("div");
+        loadingRow.className = "tag-suggestion";
+        loadingRow.style.opacity = 0.7;
+        loadingRow.textContent = "Searching…";
+        dropdown.appendChild(customImmediate);
+        dropdown.appendChild(loadingRow);
+        dropdown.classList.add("show");
+        const card = dropdown.closest('.movie-card');
+        if (card) card.classList.add('is-elevated');
       }
       
-      const searchLower = searchTerm.toLowerCase().trim();
-      const availableTags = cachedAllTags.filter(tag => 
-        !currentTagNames.includes(tag.name) && 
-        tag.name.toLowerCase().includes(searchLower)
-      );
+      const q = (searchTerm || '').trim();
+      // Query server for suggestions frequently; falls back to cachedAllTags if request fails
+      let availableTags = [];
+      try {
+        const res = await apiGet(`/api/tags/search?q=${encodeURIComponent(q)}`, {
+          signal: currentTagSuggestController.signal
+        });
+        availableTags = (res.tags || []).filter(tag => !currentTagNames.includes(tag.name));
+        console.log('[tags] api results', { count: availableTags.length, names: availableTags.map(t => t.name) });
+      } catch (e) {
+        if (e.name === 'AbortError') return; // user typed more; ignore
+        // Fallback to one-time all-tags cache to avoid dead UI
+        if (!cachedAllTags) {
+          try {
+            const allTagsResult = await apiGet('/api/tags/all');
+            cachedAllTags = allTagsResult.tags || [];
+          } catch {}
+        }
+        const searchLower = q.toLowerCase();
+        availableTags = (cachedAllTags || []).filter(tag => !currentTagNames.includes(tag.name) && tag.name.toLowerCase().includes(searchLower));
+        console.log('[tags] fallback results', { count: availableTags.length });
+      } finally {
+        currentTagSuggestController = null;
+      }
       
       // Clear dropdown without causing reflow if possible
       while (dropdown.firstChild) {
@@ -860,6 +919,8 @@
             const input = document.querySelector(`#tags-${movieId} .tag-input`);
             if (input) input.value = "";
             dropdown.classList.remove("show");
+            const card = dropdown.closest('.movie-card');
+            if (card) card.classList.remove('is-elevated');
           });
           
           fragment.appendChild(option);
@@ -867,10 +928,13 @@
         
         dropdown.appendChild(fragment);
         dropdown.classList.add("show");
+        const showCard = dropdown.closest('.movie-card');
+        if (showCard) showCard.classList.add('is-elevated');
+        console.log('[tags] show dropdown with suggestions', { count: availableTags.length });
       } else if (searchTerm.trim()) {
         // Check for similar existing tags
         const trimmedSearch = searchTerm.trim();
-        const similarTags = cachedAllTags.filter(tag => 
+        const similarTags = (cachedAllTags || []).filter(tag => 
           areTagsSimilar(tag.name, trimmedSearch) && 
           !currentTagNames.includes(tag.name)
         );
@@ -891,6 +955,8 @@
               const input = document.querySelector(`#tags-${movieId} .tag-input`);
               if (input) input.value = "";
               dropdown.classList.remove("show");
+              const card = dropdown.closest('.movie-card');
+              if (card) card.classList.remove('is-elevated');
             });
             
             fragment.appendChild(option);
@@ -907,18 +973,30 @@
           const input = document.querySelector(`#tags-${movieId} .tag-input`);
           if (input) input.value = "";
           dropdown.classList.remove("show");
+          const card = dropdown.closest('.movie-card');
+          if (card) card.classList.remove('is-elevated');
         });
         
         fragment.appendChild(customOption);
         dropdown.appendChild(fragment);
         dropdown.classList.add("show");
+        const showCard2 = dropdown.closest('.movie-card');
+        if (showCard2) showCard2.classList.add('is-elevated');
+        console.log('[tags] show dropdown with custom/similar', { similarCount: similarTags.length });
       } else {
         dropdown.classList.remove("show");
+        const hideCard = dropdown.closest('.movie-card');
+        if (hideCard) hideCard.classList.remove('is-elevated');
+        console.log('[tags] hide dropdown (no input)');
       }
     } catch (error) {
       console.error("Error loading tag suggestions:", error);
       const dropdown = document.getElementById(`dropdown-${movieId}`);
-      if (dropdown) dropdown.classList.remove("show");
+      if (dropdown) {
+        dropdown.classList.remove("show");
+        const card = dropdown.closest('.movie-card');
+        if (card) card.classList.remove('is-elevated');
+      }
     }
   }
 
@@ -1469,19 +1547,8 @@
   // Load filters from URL on initial page load
   loadFiltersFromURL();
 
-  // Handle window scroll and resize to reposition dropdowns
-  function repositionActiveDropdowns() {
-    document.querySelectorAll('.tag-suggestions.show').forEach(dropdown => {
-      const movieId = dropdown.id.replace('dropdown-', '');
-      const inputElement = document.querySelector(`#tags-${movieId} .tag-input`);
-      if (inputElement) {
-        const rect = inputElement.getBoundingClientRect();
-        dropdown.style.left = rect.left + 'px';
-        dropdown.style.top = (rect.bottom + 4) + 'px';
-        dropdown.style.width = rect.width + 'px';
-      }
-    });
-  }
+  // No-op: dropdowns are positioned via CSS inside the input wrapper now
+  function repositionActiveDropdowns() {}
 
   // Initialize components and app
   if (libraryGrid) {

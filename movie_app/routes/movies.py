@@ -401,6 +401,71 @@ def get_all_tags():
     return jsonify({"tags": all_tags})
 
 
+@movies_bp.get("/api/tags/search")
+@login_required
+def search_tags():
+    """Search tags by substring for fast, frequent suggestions.
+
+    Query params:
+      - q: search term (optional). If empty, returns a limited set of tags.
+      - limit: max number of results (default 20, max 50).
+    """
+    from sqlalchemy import func
+
+    q = (request.args.get("q") or "").strip()
+    try:
+        limit = int(request.args.get("limit", 20))
+    except Exception:
+        limit = 20
+    limit = max(1, min(50, limit))
+
+    # Base: collect predefined tags matching query
+    def tag_to_dict(t):
+        return {"name": t["name"], "color": t.get("color")}
+
+    results = []
+    seen = set()
+
+    # Helper: add unique by name preserving order
+    def add_unique(tag_dict):
+        name = tag_dict.get("name")
+        if name and name not in seen:
+            seen.add(name)
+            results.append(tag_dict)
+
+    # Match predefined tags first (prefix preferred), then substring
+    if q:
+        q_lower = q.lower()
+        pref = [t for t in PREDEFINED_TAGS if t["name"].lower().startswith(q_lower)]
+        sub = [t for t in PREDEFINED_TAGS if q_lower in t["name"].lower() and t not in pref]
+        for t in pref + sub:
+            add_unique(tag_to_dict(t))
+    else:
+        # No query: start with all predefined (limited by overall limit later)
+        for t in PREDEFINED_TAGS:
+            add_unique(tag_to_dict(t))
+
+    # Then match custom tags from DB
+    if q:
+        like = f"%{q}%"
+        db_tags = (
+            Tag.query.filter(func.lower(Tag.name).like(func.lower(like)))
+            .order_by(Tag.name.asc())
+            .limit(limit)
+            .all()
+        )
+    else:
+        # When no query, just return some tags alphabetically
+        db_tags = Tag.query.order_by(Tag.name.asc()).limit(limit).all()
+
+    for t in db_tags:
+        add_unique({"name": t.name, "color": t.get_color()})
+
+    # Enforce limit
+    results = results[:limit]
+    return jsonify({"tags": results})
+
+
 @movies_bp.delete("/api/movies/<int:movie_id>/tags/<int:tag_id>")
 @login_required
 @csrf.exempt
