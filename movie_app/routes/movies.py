@@ -517,20 +517,24 @@ def remove_tag(movie_id, tag_id):
 def get_library_stats():
     """
     Get library statistics: total movies and unrated movies count for current user.
+    Optimized using EXISTS to avoid counting via left join.
     """
-    # Get total movies in library
-    total_movies = Movie.query.count()
-    
-    # Get movies that current user hasn't rated yet
-    # Use LEFT JOIN to find movies without reviews from current user
-    unrated_movies = db.session.query(Movie.id).outerjoin(
-        Review, 
-        db.and_(Movie.id == Review.movie_id, Review.user_id == current_user.id)
-    ).filter(Review.id == None).count()
-    
+    from sqlalchemy import exists
+
+    # Total movies in library
+    total_movies = db.session.query(db.func.count(Movie.id)).scalar() or 0
+
+    # Movies current user hasn't rated (fast EXISTS-based anti-join)
+    unrated_movies = (
+        db.session.query(db.func.count(Movie.id))
+        .filter(~exists().where(Review.movie_id == Movie.id).where(Review.user_id == current_user.id))
+        .scalar()
+        or 0
+    )
+
     return jsonify({
-        "total_movies": total_movies,
-        "unrated_movies": unrated_movies
+        "total_movies": int(total_movies),
+        "unrated_movies": int(unrated_movies),
     })
 
 
@@ -553,3 +557,21 @@ def delete_movie(movie_id):
     except Exception:
         db.session.rollback()
         return jsonify({"ok": False, "error": "Database error"}), 500
+
+
+@movies_bp.get("/api/movies/genres")
+@login_required
+def get_all_genres():
+    """Return a unique, sorted list of all genres present in the library.
+
+    This is a lightweight aggregation to support the filter UI without
+    fetching full movie payloads.
+    """
+    rows = db.session.query(Movie.genres).all()
+    unique = set()
+    for (genres,) in rows:
+        if isinstance(genres, list):
+            for g in genres:
+                if isinstance(g, str) and g.strip():
+                    unique.add(g.strip())
+    return jsonify({"genres": sorted(unique)})
